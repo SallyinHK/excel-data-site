@@ -1,0 +1,128 @@
+一、ROI 计算工具的【核心 Input 结构】
+
+我分成 5 大类，这是非常适合作为前端分区或 API Payload 的结构。
+
+① 项目 & 基本信息（Project Setup Inputs）
+
+对象级（一次性输入）
+
+Project Name
+Project Type（New / Replacement / CR reason）
+Product Lifecycle（年数）
+Factory Location（影响 Duty）
+系统用途
+
+决定生命周期年限
+② 销量 & 价格假设（Revenue Inputs）
+
+按 Region × SKU × Year
+
+Region（US / EMEA / APAC / China / Japan / Brazil / India / Russia / Central America / RoSA）
+SKU
+渠道结构
+Dealer / Distributor / Direct
+价格体系
+Dealer Price
+Distributor Price
+Net-Selling Price）
+销量预测
+First 12 Months QTY
+Year 1 ~ Year N Unit Forecast
+系统用途
+
+Revenue 计算主引擎
+MAP variance / 合规检查
+区域贡献度分析
+③ 成本输入（Cost Inputs）
+
+3.1 Unit-level 可变成本
+
+按 Region / SKU
+
+Product Cost
+Royalty
+Freight Cost
+Duty %
+Discount / Rebate
+Warehouse %
+Commission %
+系统用途
+
+Contribution Margin 计算
+Region / Channel 差异分析
+3.2 项目级固定投资（Investment Inputs）
+
+固定资产投入
+其他研发投入
+系统用途
+
+Cash Flow（Year 0 投入）
+ROI / IRR / NPV 分子分母
+④ 财务 & 假设参数（Financial Assumptions）
+
+FX Rate（Region → USD）
+VAT %（按 Region）
+Income Tax Rate
+Discount Rate（NPV 用）
+AR Days / Inventory Turns / AP Days
+系统用途
+
+Operating Profit → Cash Flow
+NPV / IRR / Payback 计算
+系统用途
+
+Risk / Exception Flag
+二、ROI 计算工具的【核心 Output 结构】
+
+从决策角度，Output 可以分 4 层。
+
+① 核心决策指标（Executive Outputs｜最重要）
+
+ROI (%)
+IRR (%)
+NPV (USD)
+Payback Period
+Years
+Months
+Profitability Index (PI)
+典型用途：
+✅ Gate 决策 / Investment Approval / VP Review
+
+② 盈利能力指标（P&L Outputs）
+
+按 Region / SKU / Year / Total
+
+Revenue
+Net Sales
+Contribution Margin ($)
+Contribution Margin (%)
+Gross Profit ($ / %)
+Operating Profit
+Net Profit (After Tax)
+典型用途：
+✅ 区域承诺对比
+✅ 产品组合分析
+
+③ 现金流与资本回报（Cash Flow Outputs）
+
+Year 0 ~ Year N Net Cash Flow
+Cumulative Cash Flow
+Add-back Tooling Amortization
+Net Asset Increase
+典型用途：
+✅ 判断现金压力 & 回收节奏
+
+④ 风险 / 管控型输出（Management Outputs）
+
+CM% < Target 或 < 0 提示
+Region Profitability 异常
+Assumption Summary（FX / Freight / Duty / MDF）
+典型用途：
+✅风险提示
+✅ Audit / Compliance support
+
+三、一句话总结成「系统视角」
+
+ROI 工具本质是：
+「把 销量 × 价格 × 区域结构 + 成本 × 生命周期 + 前期投资
+转换为 现金流，并输出 ROI / IRR / NPV / Payback 的决策引擎」

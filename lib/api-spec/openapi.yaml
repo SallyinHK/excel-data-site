@@ -1,0 +1,1112 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: Enterprise ROI Automation Platform API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: projects
+    description: Project management
+  - name: scenarios
+    description: Scenario management
+  - name: inputs
+    description: Financial inputs
+  - name: calculations
+    description: NPV/IRR calculations
+  - name: regional
+    description: Regional parameters
+  - name: regions
+    description: Project sales regions
+  - name: formulas
+    description: Formula governance
+  - name: audit
+    description: Audit trail
+  - name: dashboard
+    description: Executive dashboard
+  - name: sheets
+    description: Google Sheets sync
+
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /projects:
+    get:
+      operationId: listProjects
+      tags: [projects]
+      summary: List all projects
+      parameters:
+        - name: region
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+    post:
+      operationId: createProject
+      tags: [projects]
+      summary: Create a new project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectInput"
+      responses:
+        "201":
+          description: Created project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+
+  /projects/{id}:
+    get:
+      operationId: getProject
+      tags: [projects]
+      summary: Get project details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Project details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateProject
+      tags: [projects]
+      summary: Update project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectUpdate"
+      responses:
+        "200":
+          description: Updated project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+    delete:
+      operationId: deleteProject
+      tags: [projects]
+      summary: Archive/delete project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /projects/{id}/regions:
+    get:
+      operationId: listProjectSalesRegions
+      tags: [regions]
+      summary: List sales regions for a project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of sales regions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProjectSalesRegion"
+    post:
+      operationId: addProjectSalesRegion
+      tags: [regions]
+      summary: Add a sales region to a project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectSalesRegionInput"
+      responses:
+        "201":
+          description: Created sales region
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectSalesRegion"
+
+  /projects/{id}/regions/{regionId}:
+    patch:
+      operationId: updateProjectSalesRegion
+      tags: [regions]
+      summary: Update fx multiplier for a project sales region
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: regionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectSalesRegionUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectSalesRegion"
+    delete:
+      operationId: removeProjectSalesRegion
+      tags: [regions]
+      summary: Remove a sales region from a project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: regionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Removed
+
+  /projects/{id}/scenarios:
+    get:
+      operationId: listScenarios
+      tags: [scenarios]
+      summary: List scenarios for a project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of scenarios
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Scenario"
+    post:
+      operationId: createScenario
+      tags: [scenarios]
+      summary: Create a scenario for a project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScenarioInput"
+      responses:
+        "201":
+          description: Created scenario
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scenario"
+
+  /scenarios/{id}:
+    get:
+      operationId: getScenario
+      tags: [scenarios]
+      summary: Get scenario details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Scenario details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scenario"
+    patch:
+      operationId: updateScenario
+      tags: [scenarios]
+      summary: Update scenario metadata
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScenarioUpdate"
+      responses:
+        "200":
+          description: Updated scenario
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scenario"
+
+  /scenarios/{id}/duplicate:
+    post:
+      operationId: duplicateScenario
+      tags: [scenarios]
+      summary: Duplicate a scenario (for Optimistic/Pessimistic copies)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DuplicateScenarioInput"
+      responses:
+        "201":
+          description: Duplicated scenario
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scenario"
+
+  /scenarios/{id}/inputs:
+    get:
+      operationId: getFinancialInputs
+      tags: [inputs]
+      summary: Get financial inputs for a scenario
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of financial inputs by year
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FinancialInput"
+    put:
+      operationId: saveFinancialInputs
+      tags: [inputs]
+      summary: Save/replace all financial inputs for a scenario
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinancialInputsBulk"
+      responses:
+        "200":
+          description: Saved inputs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FinancialInput"
+
+  /scenarios/{id}/calculate:
+    post:
+      operationId: calculateScenario
+      tags: [calculations]
+      summary: Run NPV/IRR/Payback calculation for a scenario
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Calculation results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Calculation"
+
+  /scenarios/{id}/calculation:
+    get:
+      operationId: getCalculation
+      tags: [calculations]
+      summary: Get latest calculation result for a scenario
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Latest calculation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Calculation"
+        "404":
+          description: No calculation yet
+
+  /regional-parameters:
+    get:
+      operationId: listRegionalParameters
+      tags: [regional]
+      summary: List all regional parameters
+      responses:
+        "200":
+          description: List of regional parameters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RegionalParameter"
+    post:
+      operationId: createRegionalParameter
+      tags: [regional]
+      summary: Create a regional parameter entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegionalParameterInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegionalParameter"
+
+  /regional-parameters/{id}:
+    patch:
+      operationId: updateRegionalParameter
+      tags: [regional]
+      summary: Update a regional parameter
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegionalParameterUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegionalParameter"
+
+  /formula-definitions:
+    get:
+      operationId: listFormulaDefinitions
+      tags: [formulas]
+      summary: List formula definitions
+      responses:
+        "200":
+          description: Formula definitions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FormulaDefinition"
+    post:
+      operationId: createFormulaDefinition
+      tags: [formulas]
+      summary: Create a formula definition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FormulaDefinitionInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FormulaDefinition"
+
+  /formula-definitions/{id}:
+    patch:
+      operationId: updateFormulaDefinition
+      tags: [formulas]
+      summary: Update a formula definition (admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FormulaDefinitionUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FormulaDefinition"
+
+  /projects/{id}/audit-log:
+    get:
+      operationId: getProjectAuditLog
+      tags: [audit]
+      summary: Get audit log for a project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditLogEntry"
+
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get portfolio-level dashboard summary stats
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/projects:
+    get:
+      operationId: getDashboardProjects
+      tags: [dashboard]
+      summary: Get all projects ranked by NPV for executive dashboard
+      parameters:
+        - name: region
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+        - name: sortOrder
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Ranked projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DashboardProject"
+
+  /sheets/export:
+    post:
+      operationId: sheetsExport
+      tags: [sheets]
+      summary: Export all project inputs and results to Google Sheets
+      responses:
+        "200":
+          description: Export result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SheetsExportResult"
+
+  /sheets/import:
+    post:
+      operationId: sheetsImport
+      tags: [sheets]
+      summary: Import financial inputs from the Google Sheets Input tab and recalculate
+      responses:
+        "200":
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SheetsImportResult"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    Project:
+      type: object
+      required: [id, name, region, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: ["string", "null"]
+        region:
+          type: string
+        productCategory:
+          type: ["string", "null"]
+        investmentSize:
+          type: ["number", "null"]
+        status:
+          type: string
+          enum: [draft, review, approved, archived]
+        createdBy:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        salesRegions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectSalesRegion"
+
+    ProjectSalesRegion:
+      type: object
+      required: [id, projectId, region, fxMultiplier]
+      properties:
+        id:
+          type: integer
+        projectId:
+          type: integer
+        region:
+          type: string
+        fxMultiplier:
+          type: number
+
+    ProjectSalesRegionInput:
+      type: object
+      required: [region]
+      properties:
+        region:
+          type: string
+        fxMultiplier:
+          type: number
+
+    ProjectSalesRegionUpdate:
+      type: object
+      properties:
+        fxMultiplier:
+          type: number
+
+    ProjectInput:
+      type: object
+      required: [name, region]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        region:
+          type: string
+        productCategory:
+          type: string
+        investmentSize:
+          type: number
+        createdBy:
+          type: string
+
+    ProjectUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        region:
+          type: string
+        productCategory:
+          type: string
+        investmentSize:
+          type: number
+        status:
+          type: string
+          enum: [draft, review, approved, archived]
+
+    Scenario:
+      type: object
+      required: [id, projectId, name, isBaseline, lifecycleYears, createdAt]
+      properties:
+        id:
+          type: integer
+        projectId:
+          type: integer
+        name:
+          type: string
+        isBaseline:
+          type: boolean
+        lifecycleYears:
+          type: integer
+        assumptionsSummary:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+        calculation:
+          $ref: "#/components/schemas/Calculation"
+
+    ScenarioInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        lifecycleYears:
+          type: integer
+          minimum: 1
+          maximum: 10
+        assumptionsSummary:
+          type: string
+        isBaseline:
+          type: boolean
+
+    ScenarioUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        lifecycleYears:
+          type: integer
+          minimum: 1
+          maximum: 10
+        assumptionsSummary:
+          type: string
+        isBaseline:
+          type: boolean
+
+    DuplicateScenarioInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+
+    FinancialInput:
+      type: object
+      required: [id, scenarioId, year, salesVolume, netPrice, cogs, opex, capex]
+      properties:
+        id:
+          type: integer
+        scenarioId:
+          type: integer
+        year:
+          type: integer
+        salesVolume:
+          type: number
+        netPrice:
+          type: number
+        unitCost:
+          type: ["number", "null"]
+        costQty:
+          type: ["number", "null"]
+        cogs:
+          type: number
+        opex:
+          type: number
+        capex:
+          type: number
+
+    FinancialInputsBulk:
+      type: object
+      required: [inputs]
+      properties:
+        inputs:
+          type: array
+          items:
+            type: object
+            required: [year, salesVolume, netPrice, cogs, opex, capex]
+            properties:
+              year:
+                type: integer
+              salesVolume:
+                type: number
+              netPrice:
+                type: number
+              unitCost:
+                type: ["number", "null"]
+              costQty:
+                type: ["number", "null"]
+              cogs:
+                type: number
+              opex:
+                type: number
+              capex:
+                type: number
+
+    Calculation:
+      type: object
+      required: [id, scenarioId, npv, irr, paybackPeriod, roiPercent, calculatedAt]
+      properties:
+        id:
+          type: integer
+        scenarioId:
+          type: integer
+        npv:
+          type: number
+        irr:
+          type: ["number", "null"]
+        paybackPeriod:
+          type: ["number", "null"]
+        roiPercent:
+          type: ["number", "null"]
+        totalRevenue:
+          type: ["number", "null"]
+        totalCost:
+          type: ["number", "null"]
+        totalCogs:
+          type: ["number", "null"]
+        totalCapex:
+          type: ["number", "null"]
+        cashFlows:
+          type: ["string", "null"]
+        calculatedAt:
+          type: string
+          format: date-time
+
+    RegionalParameter:
+      type: object
+      required: [id, region, taxRate, currency, exchangeRateToUsd, effectiveDate]
+      properties:
+        id:
+          type: integer
+        region:
+          type: string
+        taxRate:
+          type: number
+        currency:
+          type: string
+        exchangeRateToUsd:
+          type: number
+        effectiveDate:
+          type: string
+          format: date
+
+    RegionalParameterInput:
+      type: object
+      required: [region, taxRate, currency, exchangeRateToUsd, effectiveDate]
+      properties:
+        region:
+          type: string
+        taxRate:
+          type: number
+        currency:
+          type: string
+        exchangeRateToUsd:
+          type: number
+        effectiveDate:
+          type: string
+
+    RegionalParameterUpdate:
+      type: object
+      properties:
+        taxRate:
+          type: number
+        currency:
+          type: string
+        exchangeRateToUsd:
+          type: number
+        effectiveDate:
+          type: string
+
+    FormulaDefinition:
+      type: object
+      required: [id, formulaType, wacc, discountRate, locked, version, updatedAt]
+      properties:
+        id:
+          type: integer
+        formulaType:
+          type: string
+        wacc:
+          type: number
+        discountRate:
+          type: number
+        parametersJson:
+          type: ["string", "null"]
+        locked:
+          type: boolean
+        version:
+          type: integer
+        updatedBy:
+          type: ["string", "null"]
+        updatedAt:
+          type: string
+          format: date-time
+
+    FormulaDefinitionInput:
+      type: object
+      required: [formulaType, wacc, discountRate]
+      properties:
+        formulaType:
+          type: string
+        wacc:
+          type: number
+        discountRate:
+          type: number
+        parametersJson:
+          type: string
+        locked:
+          type: boolean
+
+    FormulaDefinitionUpdate:
+      type: object
+      properties:
+        wacc:
+          type: number
+        discountRate:
+          type: number
+        parametersJson:
+          type: string
+        locked:
+          type: boolean
+
+    AuditLogEntry:
+      type: object
+      required: [id, tableName, recordId, fieldName, oldValue, newValue, changedBy, changedAt]
+      properties:
+        id:
+          type: integer
+        tableName:
+          type: string
+        recordId:
+          type: integer
+        fieldName:
+          type: string
+        oldValue:
+          type: ["string", "null"]
+        newValue:
+          type: ["string", "null"]
+        changedBy:
+          type: string
+        changedAt:
+          type: string
+          format: date-time
+
+    SheetsExportResult:
+      type: object
+      required: [inputRows, outputRows, sheetUrl]
+      properties:
+        inputRows:
+          type: integer
+        outputRows:
+          type: integer
+        sheetUrl:
+          type: string
+
+    SheetsImportResult:
+      type: object
+      required: [updated, calculated, errors]
+      properties:
+        updated:
+          type: integer
+        calculated:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: string
+
+    DashboardSummary:
+      type: object
+      required: [totalProjects, totalApproved, totalInReview, totalDraft, avgNpv, avgIrr, totalInvestment, byRegion, byStatus]
+      properties:
+        totalProjects:
+          type: integer
+        totalApproved:
+          type: integer
+        totalInReview:
+          type: integer
+        totalDraft:
+          type: integer
+        avgNpv:
+          type: ["number", "null"]
+        avgIrr:
+          type: ["number", "null"]
+        totalInvestment:
+          type: ["number", "null"]
+        byRegion:
+          type: array
+          items:
+            type: object
+            properties:
+              region:
+                type: string
+              count:
+                type: integer
+              avgNpv:
+                type: ["number", "null"]
+        byStatus:
+          type: array
+          items:
+            type: object
+            properties:
+              status:
+                type: string
+              count:
+                type: integer
+
+    DashboardProject:
+      type: object
+      required: [id, name, region, status, investmentSize, npv, irr, paybackPeriod, roiPercent, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        region:
+          type: string
+        productCategory:
+          type: ["string", "null"]
+        status:
+          type: string
+        investmentSize:
+          type: ["number", "null"]
+        npv:
+          type: ["number", "null"]
+        irr:
+          type: ["number", "null"]
+        paybackPeriod:
+          type: ["number", "null"]
+        roiPercent:
+          type: ["number", "null"]
+        pi:
+          type: ["number", "null"]
+        totalRevenue:
+          type: ["number", "null"]
+        cm:
+          type: ["number", "null"]
+        cmPct:
+          type: ["number", "null"]
+        salesRegions:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time

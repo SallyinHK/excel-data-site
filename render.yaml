@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: excel-data-site
+    runtime: node
+    plan: free
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm run deploy:build
+    startCommand: pnpm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: excel-data-site-db
+          property: connectionString
+
+databases:
+  - name: excel-data-site-db
+    plan: free
