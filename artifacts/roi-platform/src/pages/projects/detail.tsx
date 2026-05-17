@@ -783,13 +783,18 @@ function CalcResults({ scenario }: { scenario: any }) {
                   <div className={`text-xl font-bold font-mono leading-tight ${value === "—" ? "text-muted-foreground" : positive ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
                     {value}
                   </div>
-                  <div className="flex items-center justify-between gap-2 mt-1">
-                    <div className="text-[10px] text-muted-foreground">{sub}</div>
+                  <div className="flex items-center justify-between gap-1 mt-1 min-w-0">
+                    <div className="text-[10px] text-muted-foreground min-w-0">{sub}</div>
                     <Dialog>
                       <DialogTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground">
-                          <Info className="w-3 h-3 mr-1" />
-                          Logic
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="View calculation logic"
+                          aria-label="View calculation logic"
+                          className="h-6 w-6 shrink-0 rounded-full p-0 text-muted-foreground hover:text-foreground"
+                        >
+                          <Info className="w-3.5 h-3.5" />
                         </Button>
                       </DialogTrigger>
                       <DialogContent className="sm:max-w-xl">
