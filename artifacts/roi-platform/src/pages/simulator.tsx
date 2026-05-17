@@ -1,10 +1,12 @@
 import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   BarChart, Bar, AreaChart, Area, XAxis, YAxis,
@@ -20,6 +22,15 @@ import {
 
 interface YearRow { year: number; salesVolume: number; netPrice: number; cogs: number; opex: number; capex: number }
 
+interface DemoProjectPreset {
+  key: string;
+  name: string;
+  region: string;
+  projectType: string;
+  taxRate: number;
+  years: YearRow[];
+}
+
 interface Setup {
   projectName: string;
   projectType: string;
@@ -31,6 +42,13 @@ interface Assumptions {
   discountRate: number;
   taxRate: number;
   targetCmPct: number;
+}
+
+interface Sensitivity {
+  salesVolume: number;
+  netPrice: number;
+  cogs: number;
+  opex: number;
 }
 
 // ─── Client-side Calculation Engine ──────────────────────────────────────────
@@ -171,6 +189,94 @@ function SLabel({ num, label, icon: Icon }: { num: string; label: string; icon?:
 const DEFAULT_SETUP: Setup = { projectName: "New Simulation", projectType: "New", region: "APAC", lifecycleYears: 5 };
 const DEFAULT_ASSUMPTIONS: Assumptions = { discountRate: 8.5, taxRate: 25, targetCmPct: 30 };
 
+const DEMO_PROJECTS: DemoProjectPreset[] = [
+  {
+    key: "digital-health-na",
+    name: "Digital Health Platform — NA",
+    region: "NA",
+    projectType: "New",
+    taxRate: 21,
+    years: [
+      { year: 1, salesVolume: 2700000, netPrice: 1, cogs: 900000, opex: 1100000, capex: 3500000 },
+      { year: 2, salesVolume: 7220000, netPrice: 1, cogs: 1900000, opex: 1400000, capex: 2000000 },
+      { year: 3, salesVolume: 13000000, netPrice: 1, cogs: 2900000, opex: 1700000, capex: 2000000 },
+      { year: 4, salesVolume: 19320000, netPrice: 1, cogs: 3800000, opex: 1900000, capex: 1000000 },
+      { year: 5, salesVolume: 25300000, netPrice: 1, cogs: 4600000, opex: 2100000, capex: 1000000 },
+    ],
+  },
+  {
+    key: "fiber-apac",
+    name: "NextGen Fiber Optics — APAC Rollout",
+    region: "APAC",
+    projectType: "Expansion",
+    taxRate: 20,
+    years: [
+      { year: 1, salesVolume: 10200000, netPrice: 1, cogs: 4800000, opex: 2100000, capex: 18000000 },
+      { year: 2, salesVolume: 24640000, netPrice: 1, cogs: 9800000, opex: 3200000, capex: 12000000 },
+      { year: 3, salesVolume: 40500000, netPrice: 1, cogs: 15000000, opex: 4500000, capex: 8000000 },
+      { year: 4, salesVolume: 53360000, netPrice: 1, cogs: 18500000, opex: 5200000, capex: 4000000 },
+      { year: 5, salesVolume: 63920000, netPrice: 1, cogs: 21000000, opex: 5800000, capex: 3000000 },
+    ],
+  },
+  {
+    key: "smart-grid-eu",
+    name: "Smart Grid Modernization — EU Phase 2",
+    region: "EU",
+    projectType: "Replacement",
+    taxRate: 22,
+    years: [
+      { year: 1, salesVolume: 9600000, netPrice: 1, cogs: 5200000, opex: 1800000, capex: 10000000 },
+      { year: 2, salesVolume: 20000000, netPrice: 1, cogs: 9600000, opex: 2600000, capex: 7000000 },
+      { year: 3, salesVolume: 33280000, netPrice: 1, cogs: 14500000, opex: 3400000, capex: 5000000 },
+      { year: 4, salesVolume: 44200000, netPrice: 1, cogs: 17800000, opex: 4000000, capex: 3500000 },
+      { year: 5, salesVolume: 52800000, netPrice: 1, cogs: 20000000, opex: 4500000, capex: 3000000 },
+    ],
+  },
+  {
+    key: "cloud-erp-na",
+    name: "Cloud ERP Migration — NA",
+    region: "NA",
+    projectType: "Replacement",
+    taxRate: 21,
+    years: [
+      { year: 1, salesVolume: 3000000, netPrice: 1, cogs: 1200000, opex: 1500000, capex: 4000000 },
+      { year: 2, salesVolume: 7440000, netPrice: 1, cogs: 2400000, opex: 1800000, capex: 2000000 },
+      { year: 3, salesVolume: 13120000, netPrice: 1, cogs: 3600000, opex: 2100000, capex: 2000000 },
+      { year: 4, salesVolume: 18150000, netPrice: 1, cogs: 4500000, opex: 2400000, capex: 2000000 },
+      { year: 5, salesVolume: 22950000, netPrice: 1, cogs: 5200000, opex: 2600000, capex: 2000000 },
+    ],
+  },
+  {
+    key: "autonomous-logistics-latam",
+    name: "Autonomous Logistics Platform — LATAM",
+    region: "LATAM",
+    projectType: "New",
+    taxRate: 25,
+    years: [
+      { year: 1, salesVolume: 4750000, netPrice: 1, cogs: 2800000, opex: 1200000, capex: 8000000 },
+      { year: 2, salesVolume: 11760000, netPrice: 1, cogs: 6000000, opex: 2000000, capex: 4000000 },
+      { year: 3, salesVolume: 22000000, netPrice: 1, cogs: 10500000, opex: 2800000, capex: 3000000 },
+      { year: 4, salesVolume: 30600000, netPrice: 1, cogs: 13800000, opex: 3400000, capex: 2000000 },
+      { year: 5, salesVolume: 37800000, netPrice: 1, cogs: 16200000, opex: 3800000, capex: 1000000 },
+    ],
+  },
+  {
+    key: "renewable-storage-mea",
+    name: "Renewable Energy Storage — MEA",
+    region: "MEA",
+    projectType: "Expansion",
+    taxRate: 15,
+    years: [
+      { year: 1, salesVolume: 2400000, netPrice: 1, cogs: 1200000, opex: 800000, capex: 25000000 },
+      { year: 2, salesVolume: 5880000, netPrice: 1, cogs: 2400000, opex: 1200000, capex: 15000000 },
+      { year: 3, salesVolume: 9000000, netPrice: 1, cogs: 3200000, opex: 1600000, capex: 8000000 },
+      { year: 4, salesVolume: 11000000, netPrice: 1, cogs: 3800000, opex: 1900000, capex: 5000000 },
+      { year: 5, salesVolume: 12750000, netPrice: 1, cogs: 4200000, opex: 2100000, capex: 2000000 },
+    ],
+  },
+];
+const DEFAULT_SENSITIVITY: Sensitivity = { salesVolume: 0, netPrice: 0, cogs: 0, opex: 0 };
+
 function makeRows(n: number): YearRow[] {
   return Array.from({ length: n }, (_, i) => ({ year: i + 1, salesVolume: 0, netPrice: 0, cogs: 0, opex: 0, capex: 0 }));
 }
@@ -182,8 +288,22 @@ export default function Simulator() {
   const [rows, setRows] = useState<YearRow[]>(makeRows(5));
   const [assumptions, setAssumptions] = useState<Assumptions>(DEFAULT_ASSUMPTIONS);
   const [outputTab, setOutputTab] = useState<"pl" | "cashflow" | "risk">("pl");
+  const [selectedDemo, setSelectedDemo] = useState(DEMO_PROJECTS[0].key);
+  const [sensitivity, setSensitivity] = useState<Sensitivity>(DEFAULT_SENSITIVITY);
 
-  const calc = useMemo(() => runCalc(rows, assumptions), [rows, assumptions]);
+  const adjustedRows = useMemo(
+    () => rows.map((r) => ({
+      ...r,
+      salesVolume: r.salesVolume * (1 + sensitivity.salesVolume / 100),
+      netPrice: r.netPrice * (1 + sensitivity.netPrice / 100),
+      cogs: r.cogs * (1 + sensitivity.cogs / 100),
+      opex: r.opex * (1 + sensitivity.opex / 100),
+    })),
+    [rows, sensitivity]
+  );
+
+  const baseCalc = useMemo(() => runCalc(rows, assumptions), [rows, assumptions]);
+  const calc = useMemo(() => runCalc(adjustedRows, assumptions), [adjustedRows, assumptions]);
 
   const setRow = (year: number, field: keyof YearRow, value: number) => {
     setRows((prev) => prev.map((r) => r.year === year ? { ...r, [field]: value } : r));
@@ -200,25 +320,133 @@ export default function Simulator() {
     });
   };
 
+  const loadDemoBaseline = (key: string) => {
+    const preset = DEMO_PROJECTS.find((item) => item.key === key) ?? DEMO_PROJECTS[0];
+
+    setSetup({
+      projectName: preset.name,
+      projectType: preset.projectType,
+      region: preset.region,
+      lifecycleYears: preset.years.length,
+    });
+
+    setRows(preset.years.map((row) => ({ ...row })));
+
+    setAssumptions((prev) => ({
+      ...prev,
+      taxRate: preset.taxRate,
+      discountRate: 8.5,
+    }));
+    setSensitivity(DEFAULT_SENSITIVITY);
+  };
+
   const years = rows.map((r) => r.year);
 
   return (
     <div className="space-y-4">
 
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
             <Zap className="w-5 h-5 text-primary" />
             ROI Simulator
           </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">Real-time calculation — results update as you type</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Load a project baseline, then test how assumption changes affect ROI.
+          </p>
         </div>
-        <Badge variant="outline" className="text-[10px] px-2 py-1 font-mono uppercase tracking-widest">Live</Badge>
+
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <Select value={selectedDemo} onValueChange={setSelectedDemo}>
+            <SelectTrigger className="h-8 w-full sm:w-[280px] text-xs bg-background">
+              <SelectValue placeholder="Select baseline project" />
+            </SelectTrigger>
+            <SelectContent>
+              {DEMO_PROJECTS.map((project) => (
+                <SelectItem key={project.key} value={project.key}>
+                  {project.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs gap-1.5"
+            onClick={() => loadDemoBaseline(selectedDemo)}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            Load Baseline
+          </Button>
+
+          <Badge variant="outline" className="text-[10px] px-2 py-1 font-mono uppercase tracking-widest self-start sm:self-auto">
+            Live
+          </Badge>
+        </div>
       </div>
 
       {/* Live KPI Bar */}
       <KpiBar calc={calc} />
+
+
+      {/* Sensitivity Analysis */}
+      <Card>
+        <CardHeader className="pb-2 px-4 pt-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <CardTitle className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Sensitivity Analysis</CardTitle>
+              <p className="text-[10px] text-muted-foreground mt-1">Adjust key assumptions without overwriting the base input table.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSensitivity(DEFAULT_SENSITIVITY)}
+              className="text-[10px] font-semibold text-primary hover:underline"
+            >
+              Reset
+            </button>
+          </div>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          <div className="grid gap-4 md:grid-cols-4">
+            {[
+              { key: "salesVolume" as keyof Sensitivity, label: "Sales Volume", min: -30, max: 30 },
+              { key: "netPrice" as keyof Sensitivity, label: "Net Price", min: -20, max: 20 },
+              { key: "cogs" as keyof Sensitivity, label: "COGS", min: -20, max: 20 },
+              { key: "opex" as keyof Sensitivity, label: "OpEx", min: -20, max: 20 },
+            ].map(({ key, label, min, max }) => (
+              <div key={key} className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
+                  <span className="text-[11px] font-mono font-semibold">{sensitivity[key] > 0 ? "+" : ""}{sensitivity[key]}%</span>
+                </div>
+                <Slider
+                  value={[sensitivity[key]]}
+                  min={min}
+                  max={max}
+                  step={1}
+                  onValueChange={([v]) => setSensitivity((prev) => ({ ...prev, [key]: v ?? 0 }))}
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+            {[
+              { label: "NPV Change", value: fmtM(calc.npv - baseCalc.npv) },
+              { label: "IRR Change", value: calc.irr != null && baseCalc.irr != null ? `${((calc.irr - baseCalc.irr) * 100).toFixed(2)}pp` : "—" },
+              { label: "ROI Change", value: calc.roiPercent != null && baseCalc.roiPercent != null ? `${(calc.roiPercent - baseCalc.roiPercent).toFixed(1)}pp` : "—" },
+              { label: "Payback Change", value: calc.payback != null && baseCalc.payback != null ? `${(calc.payback - baseCalc.payback).toFixed(2)}y` : "—" },
+            ].map(({ label, value }) => (
+              <div key={label} className="rounded-md border bg-muted/30 px-3 py-2">
+                <div className="text-[10px] text-muted-foreground mb-0.5">{label}</div>
+                <div className="text-sm font-bold font-mono">{value}</div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Input + Output grid */}
       <div className="grid gap-4 lg:grid-cols-5">

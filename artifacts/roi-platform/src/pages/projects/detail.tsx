@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -47,6 +48,8 @@ import {
   Trash2,
   Pencil,
   X,
+  Info,
+  FileText,
 } from "lucide-react";
 import {
   AreaChart,
@@ -659,6 +662,59 @@ function CalcResults({ scenario }: { scenario: any }) {
   // Profitability Index = (NPV + totalCapex) / totalCapex
   const pi = calc.totalCapex > 0 ? (calc.npv + calc.totalCapex) / calc.totalCapex : null;
 
+  const metricExplanations: Record<string, { title: string; formula: string; rows: { label: string; value: string }[]; note: string }> = {
+    NPV: {
+      title: "Net Present Value",
+      formula: "NPV = Σ Free Cash Flow_t / (1 + WACC)^t",
+      rows: [
+        { label: "Current result", value: fmtM(calc.npv) },
+        { label: "Total free cash flow", value: fmtK(totalFCF) },
+        { label: "Governed rate", value: "WACC / discount rate from Formula Governance" },
+      ],
+      note: "A positive NPV means the project creates value after discounting future cash flows at the governed cost of capital.",
+    },
+    IRR: {
+      title: "Internal Rate of Return",
+      formula: "IRR is the discount rate that makes NPV equal to zero.",
+      rows: [
+        { label: "Current result", value: fmtPct(calc.irr) },
+        { label: "Decision logic", value: "Compare with hurdle rate / WACC" },
+        { label: "Data source", value: "Annual free cash flow series" },
+      ],
+      note: "IRR may be unavailable when the cash flow pattern does not contain both negative and positive values.",
+    },
+    Payback: {
+      title: "Payback Period",
+      formula: "Payback = the first point where cumulative free cash flow becomes positive.",
+      rows: [
+        { label: "Current result", value: fmtPeriod(calc.paybackPeriod) },
+        { label: "Latest cumulative FCF", value: fmtK(cashFlows.at(-1)?.cumulativeCashFlow) },
+        { label: "Lifecycle years", value: `${cashFlows.length}` },
+      ],
+      note: "A shorter payback period means the project recovers invested capital faster, but it should still be considered together with NPV and IRR.",
+    },
+    ROI: {
+      title: "Return on Investment",
+      formula: "ROI = Total Free Cash Flow / Total CapEx",
+      rows: [
+        { label: "Current result", value: calc.roiPercent != null ? `${calc.roiPercent.toFixed(1)}%` : "—" },
+        { label: "Total free cash flow", value: fmtK(totalFCF) },
+        { label: "Total CapEx", value: fmt(calc.totalCapex) },
+      ],
+      note: "ROI explains the overall return relative to capital invested. It is easy to read, but it does not reflect timing as clearly as NPV.",
+    },
+    PI: {
+      title: "Profitability Index",
+      formula: "PI = (NPV + Total CapEx) / Total CapEx",
+      rows: [
+        { label: "Current result", value: pi != null ? pi.toFixed(2) : "—" },
+        { label: "NPV", value: fmtM(calc.npv) },
+        { label: "Total CapEx", value: fmt(calc.totalCapex) },
+      ],
+      note: "A PI above 1.0 means the project creates value per dollar invested, which is useful for capital allocation comparison.",
+    },
+  };
+
   return (
     <div className="p-4">
       <Tabs value={resultsTab} onValueChange={(v) => setResultsTab(v as any)}>
@@ -727,7 +783,40 @@ function CalcResults({ scenario }: { scenario: any }) {
                   <div className={`text-xl font-bold font-mono leading-tight ${value === "—" ? "text-muted-foreground" : positive ? "text-green-600 dark:text-green-400" : "text-red-500"}`}>
                     {value}
                   </div>
-                  <div className="text-[10px] text-muted-foreground mt-1">{sub}</div>
+                  <div className="flex items-center justify-between gap-2 mt-1">
+                    <div className="text-[10px] text-muted-foreground">{sub}</div>
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground">
+                          <Info className="w-3 h-3 mr-1" />
+                          Logic
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="sm:max-w-xl">
+                        <DialogHeader>
+                          <DialogTitle>{metricExplanations[label]?.title ?? label}</DialogTitle>
+                          <DialogDescription>
+                            Transparent calculation logic used by the current scenario.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4">
+                          <div className="rounded-md border bg-muted/30 p-3">
+                            <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-1">Formula</div>
+                            <div className="text-sm font-mono leading-relaxed">{metricExplanations[label]?.formula}</div>
+                          </div>
+                          <div className="grid gap-2">
+                            {(metricExplanations[label]?.rows ?? []).map((row) => (
+                              <div key={row.label} className="flex items-center justify-between rounded-md border px-3 py-2">
+                                <span className="text-xs text-muted-foreground">{row.label}</span>
+                                <span className="text-xs font-mono font-semibold text-right">{row.value}</span>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-xs text-muted-foreground leading-relaxed">{metricExplanations[label]?.note}</p>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
                 </CardContent>
               </Card>
             ))}
@@ -1111,6 +1200,11 @@ export default function ProjectDetail() {
           </div>
         </div>
         <div className="flex gap-2 shrink-0">
+          <Link href={`/reports/${project.id}`} className="inline-flex">
+            <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5">
+              <FileText className="w-3.5 h-3.5" /> ROI Report
+            </Button>
+          </Link>
           {editingStatus ? (
             <>
               <Select onValueChange={(v) => setNewStatus(v)} defaultValue={project.status}>
@@ -1158,7 +1252,6 @@ export default function ProjectDetail() {
                   }`}
                 >
                   {s.name}
-                  {s.isBaseline && <span className="opacity-60 text-[9px]">BASELINE</span>}
                 </button>
               ))
             )}

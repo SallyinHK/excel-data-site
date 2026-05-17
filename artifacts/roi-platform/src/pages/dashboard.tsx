@@ -39,6 +39,7 @@ import {
   Download,
   ExternalLink,
   Loader2,
+
 } from "lucide-react";
 
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/1kysyHbkIsz_G5GbJEnbiuF6Qb4n2VduqsicjIsFP3gs";
@@ -108,28 +109,58 @@ function KpiCard({
 }
 
 function SheetsSyncCard() {
-  const qc = useQueryClient();
-  const exportMutation = useSheetsExport();
-  const importMutation = useSheetsImport();
+  const [loadingAction, setLoadingAction] = useState<"import" | "export" | null>(null);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  const handleSync = async (type: "import" | "export") => {
+  async function runSync(action: "import" | "export") {
+    setLoadingAction(action);
     setMessage(null);
-    try {
-      if (type === "export") {
-        await exportMutation.mutateAsync();
-        setMessage({ type: "success", text: "Exported successfully." });
-      } else {
-        await importMutation.mutateAsync();
-        setMessage({ type: "success", text: "Imported successfully." });
-        await qc.invalidateQueries();
-      }
-    } catch {
-      setMessage({ type: "error", text: "Sync failed." });
-    }
-  };
 
-  const isBusy = exportMutation.isPending || importMutation.isPending;
+    try {
+      const response = await fetch(`/api/sheets/${action}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      const text = await response.text();
+      let data: any = {};
+
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = { raw: text };
+      }
+
+      if (!response.ok) {
+        throw new Error(data?.message || data?.error || `${action} failed`);
+      }
+
+      if (action === "import") {
+        setMessage({
+          type: "success",
+          text: `Import completed. Updated ${data?.updated ?? data?.count ?? "data"} item(s).`,
+        });
+
+        setTimeout(() => {
+          window.location.reload();
+        }, 800);
+      } else {
+        setMessage({
+          type: "success",
+          text: "Export completed. Google Sheet output has been refreshed.",
+        });
+      }
+    } catch (err) {
+      setMessage({
+        type: "error",
+        text: err instanceof Error ? err.message : `${action} failed`,
+      });
+    } finally {
+      setLoadingAction(null);
+    }
+  }
 
   return (
     <Card className="border-dashed border-emerald-500/50 bg-emerald-50/50 flex flex-col h-full overflow-hidden">
@@ -139,59 +170,72 @@ function SheetsSyncCard() {
             <img
               src="https://ssl.gstatic.com/docs/doclist/images/drive_2022q3_32dp.png"
               className="h-4 w-4 shrink-0"
-              alt="GS"
+              alt="Google Drive"
             />
-            <CardTitle className="text-xs font-bold truncate text-slate-900">Sheets Sync</CardTitle>
+            <CardTitle className="text-xs font-bold truncate text-slate-900">
+              Sheets Sync
+            </CardTitle>
           </div>
           <a
             href={SHEET_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="text-slate-400 hover:text-primary transition-colors"
+            aria-label="Open Google Sheet"
           >
             <ExternalLink className="h-3 w-3" />
           </a>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4 px-4 pb-4 flex-1 flex flex-col justify-between">
+
+      <CardContent className="space-y-3 px-4 pb-4 flex-1 flex flex-col justify-between">
         <div className="space-y-1 mt-1">
-          <p className="text-[10px] text-slate-500 leading-tight">
-            <span className="font-semibold text-slate-700">Input:</span> Edit financial data.
+          <p className="text-[10px] text-slate-500 leading-relaxed">
+            <span className="font-semibold text-slate-700">Input:</span> Import financial data from Google Sheet.
           </p>
-          <p className="text-[10px] text-slate-500 leading-tight">
-            <span className="font-semibold text-slate-700">Output:</span> View NPV/IRR results.
+          <p className="text-[10px] text-slate-500 leading-relaxed">
+            <span className="font-semibold text-slate-700">Output:</span> Export latest NPV / IRR results.
           </p>
         </div>
-        <div className="flex flex-col gap-2">
+
+        <div className="space-y-2">
           <Button
-            size="sm"
             variant="outline"
-            className="w-full h-7 text-[10px] gap-2 bg-white border-slate-200"
-            onClick={() => handleSync("export")}
-            disabled={isBusy}
+            className="w-full h-8 text-xs gap-2 bg-white"
+            disabled={loadingAction !== null}
+            onClick={() => runSync("export")}
           >
-            {exportMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+            {loadingAction === "export" ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Upload className="h-3.5 w-3.5" />
+            )}
             Export
           </Button>
+
           <Button
-            size="sm"
-            className="w-full h-7 text-[10px] gap-2 shadow-sm"
-            onClick={() => handleSync("import")}
-            disabled={isBusy}
+            className="w-full h-8 text-xs gap-2"
+            disabled={loadingAction !== null}
+            onClick={() => runSync("import")}
           >
-            {importMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+            {loadingAction === "import" ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
             Import
           </Button>
         </div>
+
         {message && (
           <div
-            className={`flex items-center gap-2 rounded px-2 py-1 text-[9px] border ${
+            className={
               message.type === "success"
-                ? "bg-green-50 border-green-200 text-green-700"
-                : "bg-red-50 border-red-200 text-red-700"
-            }`}
+                ? "rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[9px] text-emerald-700"
+                : "rounded border border-red-200 bg-red-50 px-2 py-1 text-[9px] text-red-600"
+            }
           >
-            <span className="truncate">{message.text}</span>
+            {message.text}
           </div>
         )}
       </CardContent>
