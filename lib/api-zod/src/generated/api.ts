@@ -30,7 +30,7 @@ export const ListProjectsResponseItem = zod.object({
   region: zod.string(),
   productCategory: zod.string().nullish(),
   investmentSize: zod.number().nullish(),
-  status: zod.enum(["draft", "review", "approved", "archived"]),
+  status: zod.enum(["draft", "review", "conditional_approval", "approved", "rejected", "archived"]),
   createdBy: zod.string().nullish(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
@@ -74,7 +74,7 @@ export const GetProjectResponse = zod.object({
   region: zod.string(),
   productCategory: zod.string().nullish(),
   investmentSize: zod.number().nullish(),
-  status: zod.enum(["draft", "review", "approved", "archived"]),
+  status: zod.enum(["draft", "review", "conditional_approval", "approved", "rejected", "archived"]),
   createdBy: zod.string().nullish(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
@@ -103,7 +103,7 @@ export const UpdateProjectBody = zod.object({
   region: zod.string().optional(),
   productCategory: zod.string().optional(),
   investmentSize: zod.number().optional(),
-  status: zod.enum(["draft", "review", "approved", "archived"]).optional(),
+  status: zod.enum(["draft", "review", "conditional_approval", "approved", "rejected", "archived"]).optional(),
 });
 
 export const UpdateProjectResponse = zod.object({
@@ -113,7 +113,7 @@ export const UpdateProjectResponse = zod.object({
   region: zod.string(),
   productCategory: zod.string().nullish(),
   investmentSize: zod.number().nullish(),
-  status: zod.enum(["draft", "review", "approved", "archived"]),
+  status: zod.enum(["draft", "review", "conditional_approval", "approved", "rejected", "archived"]),
   createdBy: zod.string().nullish(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),

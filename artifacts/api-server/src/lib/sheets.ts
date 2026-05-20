@@ -190,11 +190,12 @@ async function sheetsRequest(
 function normalizeStatus(value: unknown): string {
   const raw = String(value ?? "").trim().toLowerCase();
 
-  if (raw === "approved") return "approved";
+  if (raw === "approved" || raw === "approve") return "approved";
+  if (raw === "conditional approval" || raw === "conditional_approval" || raw === "conditionally approved" || raw === "conditional") return "conditional_approval";
   if (raw === "review" || raw === "in review" || raw === "finance review") return "review";
   if (raw === "draft") return "draft";
   if (raw === "archived") return "archived";
-  if (raw === "rejected") return "draft";
+  if (raw === "rejected" || raw === "reject") return "rejected";
 
   return "draft";
 }

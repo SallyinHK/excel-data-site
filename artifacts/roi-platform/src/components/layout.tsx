@@ -7,6 +7,7 @@ import {
   Calculator,
   Briefcase,
   Zap,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +22,7 @@ export default function Layout({ children }: LayoutProps) {
     { href: "/", label: "Dashboard", icon: BarChart3 },
     { href: "/projects", label: "Projects", icon: Briefcase },
     { href: "/simulator", label: "Simulator", icon: Zap },
+    { href: "/user-guide", label: "User Guide", icon: FileText },
   ];
 
   const adminItems = [

@@ -76,6 +76,7 @@ export default function OnboardingGuide() {
     }
 
     setReady(true);
+    return undefined;
   }, [setLocation]);
 
   const closeTour = () => {

@@ -12,6 +12,8 @@ export type ProjectUpdateStatus =
 export const ProjectUpdateStatus = {
   draft: "draft",
   review: "review",
+  conditional_approval: "conditional_approval",
   approved: "approved",
+  rejected: "rejected",
   archived: "archived",
 } as const;

@@ -95,9 +95,29 @@ const fmtK = (val: number | null | undefined) => {
 const STATUS_COLORS: Record<string, string> = {
   draft: "secondary",
   review: "outline",
+  conditional_approval: "outline",
   approved: "default",
+  rejected: "destructive",
   archived: "destructive",
 };
+
+const STATUS_LABELS: Record<string, string> = {
+  draft: "Draft",
+  review: "Review",
+  conditional_approval: "Conditional Approval",
+  approved: "Approved",
+  rejected: "Rejected",
+  archived: "Archived",
+};
+
+const STATUS_OPTIONS = [
+  { value: "draft", label: "Draft" },
+  { value: "review", label: "Review" },
+  { value: "conditional_approval", label: "Conditional Approval" },
+  { value: "approved", label: "Approved" },
+  { value: "rejected", label: "Rejected" },
+  { value: "archived", label: "Archived" },
+];
 
 // ─── Section label ────────────────────────────────────────────────────────────
 
@@ -701,6 +721,35 @@ function CalcResults({ scenario }: { scenario: any }) {
   // Profitability Index = (NPV + totalCapex) / totalCapex
   const pi = calc.totalCapex > 0 ? (calc.npv + calc.totalCapex) / calc.totalCapex : null;
 
+  const lifecycleYears = cashFlows.length;
+  const paybackWithinLifecycle = calc.paybackPeriod != null && (lifecycleYears === 0 || calc.paybackPeriod <= lifecycleYears);
+  const hasCriticalFailure = calc.npv < 0 || (pi != null && pi < 1) || totalGP < 0;
+  const hasModerateConcern =
+    !paybackWithinLifecycle ||
+    (calc.irr != null && calc.irr > 0 && calc.irr <= 0.08) ||
+    (ebitdaPct != null && ebitdaPct >= 0 && ebitdaPct < 10);
+
+  const decisionOutput = hasCriticalFailure
+    ? {
+        label: "Reject",
+        status: "rejected",
+        tone: "border-red-200 bg-red-50 text-red-700",
+        note: "The case fails at least one core value creation or margin quality test. Revise the assumptions before approval.",
+      }
+    : hasModerateConcern
+    ? {
+        label: "Conditional Approval",
+        status: "conditional_approval",
+        tone: "border-blue-200 bg-blue-50 text-blue-700",
+        note: "The case is directionally viable, but it still needs tighter assumptions, risk mitigation, or management review.",
+      }
+    : {
+        label: "Approve",
+        status: "approved",
+        tone: "border-emerald-200 bg-emerald-50 text-emerald-700",
+        note: "The case meets the main financial decision thresholds based on the current scenario.",
+      };
+
   const metricExplanations: Record<string, { title: string; formula: string; rows: { label: string; value: string }[]; note: string }> = {
     NPV: {
       title: "Net Present Value",
@@ -775,6 +824,31 @@ function CalcResults({ scenario }: { scenario: any }) {
         {/* ① Executive Outputs */}
         <TabsContent value="executive" className="m-0 space-y-5">
           <SectionLabel num="1" label="Core Decision Metrics" icon={DollarSign} />
+
+          <Card className={`border ${decisionOutput.tone}`}>
+            <CardContent className="p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-widest opacity-80">Recommended Decision Output</div>
+                <div className="text-xl font-bold mt-1">{decisionOutput.label}</div>
+                <p className="text-xs leading-relaxed mt-1 opacity-90">{decisionOutput.note}</p>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-[10px] min-w-[260px]">
+                <div className="rounded border bg-white/60 p-2">
+                  <div className="font-semibold">NPV</div>
+                  <div className="font-mono">{fmtM(calc.npv)}</div>
+                </div>
+                <div className="rounded border bg-white/60 p-2">
+                  <div className="font-semibold">PI</div>
+                  <div className="font-mono">{pi != null ? pi.toFixed(2) : "—"}</div>
+                </div>
+                <div className="rounded border bg-white/60 p-2">
+                  <div className="font-semibold">Payback</div>
+                  <div className="font-mono">{fmtPeriod(calc.paybackPeriod)}</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
             {[
               {
@@ -1131,6 +1205,150 @@ function CalcResults({ scenario }: { scenario: any }) {
   );
 }
 
+
+function getScenarioCalculation(scenario: any) {
+  return scenario?.calculation ?? null;
+}
+
+function getScenarioPi(scenario: any) {
+  const calc = getScenarioCalculation(scenario);
+  if (!calc || !calc.totalCapex || calc.totalCapex <= 0) return null;
+  return (calc.npv + calc.totalCapex) / calc.totalCapex;
+}
+
+function getScenarioCmPct(scenario: any) {
+  const calc = getScenarioCalculation(scenario);
+  if (!calc || !calc.totalRevenue || calc.totalRevenue <= 0 || calc.totalCogs == null) return null;
+  return (calc.totalRevenue - calc.totalCogs) / calc.totalRevenue;
+}
+
+function formatVariance(value: number | null, formatter: (v: number) => string) {
+  if (value == null) return "—";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${formatter(value)}`;
+}
+
+function PostLaunchTrackingCard({
+  scenarios,
+  onCreateActual,
+  isCreatingActual,
+}: {
+  scenarios: any[];
+  onCreateActual: () => void;
+  isCreatingActual: boolean;
+}) {
+  const plannedScenario = scenarios.find((s) => s.isBaseline) ?? scenarios[0] ?? null;
+  const actualScenario = scenarios.find((s) => /actual|post[-\s]?launch/i.test(s.name));
+  const plannedCalc = getScenarioCalculation(plannedScenario);
+  const actualCalc = getScenarioCalculation(actualScenario);
+
+  const rows = [
+    {
+      label: "Revenue",
+      planned: plannedCalc?.totalRevenue ?? null,
+      actual: actualCalc?.totalRevenue ?? null,
+      variance: plannedCalc && actualCalc ? (actualCalc.totalRevenue ?? 0) - (plannedCalc.totalRevenue ?? 0) : null,
+      formatter: fmtM,
+    },
+    {
+      label: "CM%",
+      planned: getScenarioCmPct(plannedScenario),
+      actual: getScenarioCmPct(actualScenario),
+      variance:
+        getScenarioCmPct(plannedScenario) != null && getScenarioCmPct(actualScenario) != null
+          ? (getScenarioCmPct(actualScenario) as number) - (getScenarioCmPct(plannedScenario) as number)
+          : null,
+      formatter: (v: number) => fmtPct(v),
+      varianceFormatter: (v: number) => `${(v * 100).toFixed(1)} ppt`,
+    },
+    {
+      label: "NPV",
+      planned: plannedCalc?.npv ?? null,
+      actual: actualCalc?.npv ?? null,
+      variance: plannedCalc && actualCalc ? (actualCalc.npv ?? 0) - (plannedCalc.npv ?? 0) : null,
+      formatter: fmtM,
+    },
+    {
+      label: "PI",
+      planned: getScenarioPi(plannedScenario),
+      actual: getScenarioPi(actualScenario),
+      variance:
+        getScenarioPi(plannedScenario) != null && getScenarioPi(actualScenario) != null
+          ? (getScenarioPi(actualScenario) as number) - (getScenarioPi(plannedScenario) as number)
+          : null,
+      formatter: (v: number) => v.toFixed(2),
+    },
+    {
+      label: "Payback",
+      planned: plannedCalc?.paybackPeriod ?? null,
+      actual: actualCalc?.paybackPeriod ?? null,
+      variance:
+        plannedCalc?.paybackPeriod != null && actualCalc?.paybackPeriod != null
+          ? actualCalc.paybackPeriod - plannedCalc.paybackPeriod
+          : null,
+      formatter: fmtPeriod,
+      varianceFormatter: (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)}y`,
+    },
+  ];
+
+  const actualReady = Boolean(actualScenario && actualCalc);
+  const reviewNote = !actualScenario
+    ? "Create a Post-Launch Actuals scenario, then replace the inputs with actual volume, price, cost, OpEx, and CapEx."
+    : !actualCalc
+    ? "Actual scenario exists, but it has no calculation yet. Open it, save actual inputs, and run calculation."
+    : actualCalc.npv < 0
+    ? "Actual NPV is negative. Review pricing, volume, cost, and lifecycle assumptions."
+    : "Actual performance can now be compared with the original business case.";
+
+  return (
+    <Card>
+      <CardHeader className="pb-0 px-4 pt-4 flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+        <div>
+          <CardTitle className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Post-Launch Tracking</CardTitle>
+          <CardDescription className="text-[10px] mt-1">
+            Compare actual performance against the original business case after launch.
+          </CardDescription>
+        </div>
+        {!actualScenario && plannedScenario && (
+          <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={onCreateActual} disabled={isCreatingActual}>
+            <Copy className="w-3.5 h-3.5" />
+            {isCreatingActual ? "Creating..." : "Create Actual Tracker"}
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent className="p-0 overflow-x-auto mt-3">
+        <div className="px-4 pb-3 text-xs text-muted-foreground leading-relaxed">{reviewNote}</div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="pl-6 text-[11px]">Metric</TableHead>
+              <TableHead className="text-right text-[11px]">Original Case</TableHead>
+              <TableHead className="text-right text-[11px]">Actual / Latest</TableHead>
+              <TableHead className="text-right pr-6 text-[11px]">Variance</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row) => {
+              const varianceFormatter = row.varianceFormatter ?? row.formatter;
+              const varianceClass = row.variance == null ? "text-muted-foreground" : row.variance >= 0 ? "text-green-600" : "text-red-500";
+              return (
+                <TableRow key={row.label} className={!actualReady ? "opacity-70" : ""}>
+                  <TableCell className="pl-6 py-2 text-xs font-medium">{row.label}</TableCell>
+                  <TableCell className="text-right py-2 text-xs font-mono">{row.planned != null ? row.formatter(row.planned) : "—"}</TableCell>
+                  <TableCell className="text-right py-2 text-xs font-mono">{row.actual != null ? row.formatter(row.actual) : "—"}</TableCell>
+                  <TableCell className={`text-right pr-6 py-2 text-xs font-mono font-semibold ${varianceClass}`}>
+                    {formatVariance(row.variance, varianceFormatter)}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Main page ───────────────────────────────────────────────────────────────
 
 export default function ProjectDetail() {
@@ -1204,6 +1422,26 @@ export default function ProjectDetail() {
     );
   };
 
+  const handleCreateActualTracker = () => {
+    const baseline = scenarios?.find((s) => s.isBaseline) ?? scenarios?.[0];
+    if (!baseline) return;
+    duplicateScenario.mutate(
+      { id: baseline.id, data: { name: "Post-Launch Actuals" } },
+      {
+        onSuccess: (s) => {
+          toast({ title: "Actual tracker created", description: "Replace the copied inputs with actual launch data and run calculation." });
+          if (s?.id) {
+            setActiveScenarioId(s.id);
+            setActiveTab("inputs");
+          }
+          refetchScenarios();
+          qc.invalidateQueries({ queryKey: ["scenarios", projectId] });
+        },
+        onError: () => toast({ title: "Error", description: "Failed to create actual tracker", variant: "destructive" }),
+      }
+    );
+  };
+
   if (projLoading) {
     return (
       <div className="space-y-6 p-8">
@@ -1234,7 +1472,7 @@ export default function ProjectDetail() {
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-xl font-bold tracking-tight truncate">{project.name}</h1>
             <Badge variant={STATUS_COLORS[project.status] as any} className="uppercase text-[10px]">
-              {project.status}
+              {STATUS_LABELS[project.status] ?? project.status}
             </Badge>
           </div>
           <div className="flex flex-wrap gap-3 mt-1 text-xs text-muted-foreground">
@@ -1256,10 +1494,9 @@ export default function ProjectDetail() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="draft">Draft</SelectItem>
-                  <SelectItem value="review">Review</SelectItem>
-                  <SelectItem value="approved">Approved</SelectItem>
-                  <SelectItem value="archived">Archived</SelectItem>
+                  {STATUS_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <Button size="sm" className="h-8 text-xs" onClick={handleStatusChange} disabled={updateProject.isPending}>Save</Button>
@@ -1369,6 +1606,15 @@ export default function ProjectDetail() {
           </div>
         )}
       </Card>
+
+      {/* Post-launch tracking */}
+      {scenarios && scenarios.length > 0 && (
+        <PostLaunchTrackingCard
+          scenarios={scenarios}
+          onCreateActual={handleCreateActualTracker}
+          isCreatingActual={duplicateScenario.isPending}
+        />
+      )}
 
       {/* Scenario comparison */}
       {scenarios && scenarios.length > 1 && (

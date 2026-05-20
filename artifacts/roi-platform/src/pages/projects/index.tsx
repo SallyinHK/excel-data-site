@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Link } from "wouter";
 // Added useDeleteProject to imports
 import { useListProjects, useDeleteProject } from "@workspace/api-client-react";
@@ -18,6 +18,24 @@ interface ProjectQueryParams {
   status?: string;
   region?: string;
 }
+
+const STATUS_LABELS: Record<string, string> = {
+  draft: "Draft",
+  review: "Review",
+  conditional_approval: "Conditional Approval",
+  approved: "Approved",
+  rejected: "Rejected",
+  archived: "Archived",
+};
+
+const STATUS_BADGE_CLASSES: Record<string, string> = {
+  approved: "bg-emerald-500 hover:bg-emerald-600 text-white",
+  conditional_approval: "bg-blue-100 text-blue-700 border-blue-200",
+  rejected: "bg-red-100 text-red-700 border-red-200",
+  review: "bg-amber-100 text-amber-700 border-amber-200",
+  draft: "bg-slate-100 text-slate-600 border-slate-200",
+  archived: "bg-rose-50 text-rose-500 border-rose-200",
+};
 
 const formatCurrency = (val: number | null | undefined) => {
   if (val == null) return "-";
@@ -63,6 +81,18 @@ export default function Projects() {
   if (regionFilter !== "_all") queryParams.region = regionFilter;
 
   const { data: projects, isLoading } = useListProjects(queryParams);
+
+  const displayIdByProjectId = useMemo(() => {
+    const rows = Array.isArray(projects) ? [...projects] : [];
+
+    rows.sort((a: any, b: any) => {
+      const aTime = new Date(a.createdAt ?? 0).getTime();
+      const bTime = new Date(b.createdAt ?? 0).getTime();
+      return aTime - bTime;
+    });
+
+    return new Map(rows.map((project: any, index: number) => [project.id, index + 1]));
+  }, [projects]);
 
   // Handle Delete Function
   const handleDelete = async (id: number) => {
@@ -117,7 +147,9 @@ export default function Projects() {
                 <SelectItem value="_all">All Statuses</SelectItem>
                 <SelectItem value="draft">Draft</SelectItem>
                 <SelectItem value="review">Reviewing</SelectItem>
+                <SelectItem value="conditional_approval">Conditional Approval</SelectItem>
                 <SelectItem value="approved">Approved</SelectItem>
+                <SelectItem value="rejected">Rejected</SelectItem>
                 <SelectItem value="archived">Archived</SelectItem>
               </SelectContent>
             </Select>
@@ -160,7 +192,7 @@ export default function Projects() {
                     projects.map((project) => (
                       <TableRow key={project.id} className="group hover:bg-muted/30 transition-colors">
                         <TableCell className="pl-6 font-mono text-[11px] text-muted-foreground whitespace-nowrap">
-                          PRJ-{project.id}
+                          PRJ-{displayIdByProjectId.get(project.id) ?? project.id}
                         </TableCell>
                         <TableCell className="font-medium max-w-[300px]">
                           <div className="truncate">
@@ -175,13 +207,11 @@ export default function Projects() {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <Badge 
-                            variant={project.status === 'approved' ? 'default' : 'secondary'} 
-                            className={`uppercase text-[10px] px-1.5 py-0 whitespace-nowrap ${
-                              project.status === 'approved' ? 'bg-emerald-500 hover:bg-emerald-600' : ''
-                            }`}
+                          <Badge
+                            variant="outline"
+                            className={`uppercase text-[10px] px-1.5 py-0 whitespace-nowrap ${STATUS_BADGE_CLASSES[project.status] ?? STATUS_BADGE_CLASSES.draft}`}
                           >
-                            {project.status}
+                            {STATUS_LABELS[project.status] ?? project.status}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right font-mono text-sm font-semibold text-slate-700 whitespace-nowrap">

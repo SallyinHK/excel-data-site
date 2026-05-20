@@ -670,7 +670,7 @@ components:
           type: ["number", "null"]
         status:
           type: string
-          enum: [draft, review, approved, archived]
+          enum: [draft, review, conditional_approval, approved, rejected, archived]
         createdBy:
           type: ["string", "null"]
         createdAt:
@@ -746,7 +746,7 @@ components:
           type: number
         status:
           type: string
-          enum: [draft, review, approved, archived]
+          enum: [draft, review, conditional_approval, approved, rejected, archived]
 
     Scenario:
       type: object

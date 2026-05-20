@@ -5,8 +5,10 @@ import {
   scenariosTable,
   auditLogTable,
   projectSalesRegionsTable,
+  financialInputsTable,
+  calculationsTable,
 } from "@workspace/db";
-import { eq, ilike, and, desc, type SQL } from "drizzle-orm";
+import { eq, ilike, and, desc, inArray, or, type SQL } from "drizzle-orm";
 import {
   CreateProjectBody,
   UpdateProjectBody,
@@ -134,17 +136,64 @@ router.patch("/projects/:id", async (req, res) => {
 });
 
 // DELETE /api/projects/:id
+// Permanently deletes a project and its dependent records.
+// Use project status = "archived" when the project should be kept for history.
 router.delete("/projects/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    await db
-      .update(projectsTable)
-      .set({ status: "archived" })
-      .where(eq(projectsTable.id, id));
+
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: "Invalid project id" });
+    }
+
+    const scenarios = await db
+      .select({ id: scenariosTable.id })
+      .from(scenariosTable)
+      .where(eq(scenariosTable.projectId, id));
+
+    const scenarioIds = scenarios.map((scenario) => scenario.id);
+
+    await db.transaction(async (tx) => {
+      if (scenarioIds.length > 0) {
+        await tx
+          .delete(calculationsTable)
+          .where(inArray(calculationsTable.scenarioId, scenarioIds));
+
+        await tx
+          .delete(financialInputsTable)
+          .where(inArray(financialInputsTable.scenarioId, scenarioIds));
+
+        await tx
+          .delete(auditLogTable)
+          .where(
+            or(
+              and(eq(auditLogTable.tableName, "projects"), eq(auditLogTable.recordId, id)),
+              and(eq(auditLogTable.tableName, "scenarios"), inArray(auditLogTable.recordId, scenarioIds)),
+            ),
+          );
+
+        await tx
+          .delete(scenariosTable)
+          .where(eq(scenariosTable.projectId, id));
+      } else {
+        await tx
+          .delete(auditLogTable)
+          .where(and(eq(auditLogTable.tableName, "projects"), eq(auditLogTable.recordId, id)));
+      }
+
+      await tx
+        .delete(projectSalesRegionsTable)
+        .where(eq(projectSalesRegionsTable.projectId, id));
+
+      await tx
+        .delete(projectsTable)
+        .where(eq(projectsTable.id, id));
+    });
+
     return res.status(204).send();
   } catch (err) {
-    req.log.error({ err }, "Failed to delete project");
-    return res.status(500).json({ error: "Failed to delete project" });
+    req.log.error({ err }, "Failed to permanently delete project");
+    return res.status(500).json({ error: "Failed to permanently delete project" });
   }
 });
 

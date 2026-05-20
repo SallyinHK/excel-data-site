@@ -7,7 +7,7 @@ import {
   calculationsTable,
   auditLogTable,
 } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 
 const router = Router();
 
@@ -65,6 +65,7 @@ function normalizeStatus(value: unknown) {
   const s = String(value || "draft").trim().toLowerCase();
 
   if (["approved", "approve"].includes(s)) return "approved";
+  if (["conditional approval", "conditional_approval", "conditionally approved", "conditional"].includes(s)) return "conditional_approval";
   if (["review", "in review", "finance review", "management review"].includes(s)) return "review";
   if (["rejected", "reject"].includes(s)) return "rejected";
   if (["archived", "archive"].includes(s)) return "archived";
@@ -287,7 +288,7 @@ async function upsertProjectFromSheet(item: SheetProject) {
       .values({
         projectId: project.id,
         name: scenarioName,
-        isBaseline: scenarioName.toLowerCase() === "baseline",
+        isBaseline: scenarioName.toLowerCase() === "baseline" ? "true" : "false",
         lifecycleYears: years.length,
         assumptionsSummary: "Imported from Google Sheet Input tab.",
       })
@@ -329,12 +330,12 @@ async function upsertProjectFromSheet(item: SheetProject) {
     npv: money(calc.npv),
     irr: String(calc.irr.toFixed(6)),
     paybackPeriod: String(calc.paybackPeriod.toFixed(4)),
-    roi: String(calc.roi.toFixed(6)),
-    profitabilityIndex: String(calc.pi.toFixed(6)),
+    roiPercent: String((calc.roi * 100).toFixed(4)),
     totalRevenue: money(calc.totalRevenue),
     totalCost: money(calc.totalCost),
+    totalCogs: money(calc.rows.reduce((sum, row) => sum + row.cogs, 0)),
     totalCapex: money(calc.totalCapex),
-    totalFcf: money(calc.totalFcf),
+    cashFlows: JSON.stringify(calc.rows.map((row) => row.fcf)),
   });
 
   await db.insert(auditLogTable).values([
@@ -421,6 +422,44 @@ router.post("/import", async (_req, res) => {
   }
 });
 
+
+function cashFlowsTotal(cashFlows: unknown) {
+  if (!cashFlows) return 0;
+
+  try {
+    const rows = typeof cashFlows === "string" ? JSON.parse(cashFlows) : cashFlows;
+    if (!Array.isArray(rows)) return 0;
+
+    return rows.reduce((sum, row) => {
+      if (typeof row === "number") {
+        return sum + row;
+      }
+
+      const value = n(
+        row?.freeCashFlow ??
+        row?.fcf ??
+        row?.freeCashFlowUsd ??
+        row?.cumulativeCashFlow ??
+        0
+      );
+
+      return sum + value;
+    }, 0);
+  } catch {
+    return 0;
+  }
+}
+
+
+function formatExportDateIso(date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Hong_Kong",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
 router.post("/export", async (req, res) => {
   try {
     const { bridgeUrl, bridgeSecret } = getBridgeConfig();
@@ -429,16 +468,37 @@ router.post("/export", async (req, res) => {
     const dashboardResponse = await fetch(`${baseUrl}/api/dashboard/projects`);
     const dashboardJson = await readJson(dashboardResponse);
 
-    if (!dashboardResponse.ok) {
+    if (!dashboardResponse.ok || !Array.isArray(dashboardJson)) {
       return res.status(502).json({
         ok: false,
-        error: "Failed to read platform project data.",
+        error: dashboardJson.error || "Failed to read dashboard projects for export.",
       });
     }
 
-    const projects = Array.isArray(dashboardJson)
-      ? dashboardJson
-      : dashboardJson.projects || dashboardJson.data || [];
+    const records = dashboardJson
+      .filter((project: any) => project.status !== "archived")
+      .map((project: any) => {
+        const totalRevenue = n(project.totalRevenue);
+        const cm = n(project.cm);
+
+        return {
+          exportedAt: formatExportDateIso(),
+          projectId: project.id,
+          projectName: project.name,
+          region: project.region,
+          status: project.status,
+          investmentSize: n(project.investmentSize),
+          totalRevenue,
+          totalCost: totalRevenue && cm ? totalRevenue - cm : n(project.totalCost),
+          totalCapex: n(project.totalCapex),
+          totalFcf: n(project.totalFcf),
+          npv: n(project.npv),
+          irr: project.irr == null ? 0 : n(project.irr),
+          roi: project.roiPercent == null ? 0 : n(project.roiPercent),
+          payback: project.paybackPeriod == null ? 0 : n(project.paybackPeriod),
+          pi: project.pi == null ? 0 : n(project.pi),
+        };
+      });
 
     const bridgeResponse = await fetch(bridgeUrl, {
       method: "POST",
@@ -448,7 +508,7 @@ router.post("/export", async (req, res) => {
       body: JSON.stringify({
         action: "export",
         secret: bridgeSecret,
-        projects,
+        records,
       }),
     });
 
@@ -457,15 +517,15 @@ router.post("/export", async (req, res) => {
     if (!bridgeResponse.ok || bridgeJson.ok === false) {
       return res.status(502).json({
         ok: false,
-        error: bridgeJson.error || "Failed to export to Google Sheet.",
+        error: bridgeJson.error || "Failed to write Google Sheet.",
       });
     }
 
     return res.json({
       ok: true,
-      projectCount: projects.length,
-      message: `Exported ${projects.length} project record(s) to Google Sheet Output tab.`,
-      data: bridgeJson.data,
+      projectCount: records.length,
+      message: `Exported ${records.length} project record(s) to Google Sheet Output tab.`,
+      records,
     });
   } catch (error: any) {
     return res.status(500).json({
@@ -474,5 +534,4 @@ router.post("/export", async (req, res) => {
     });
   }
 });
-
 export default router;

@@ -13,10 +13,14 @@ const router = Router();
 // GET /api/dashboard/summary
 router.get("/dashboard/summary", async (req, res) => {
   try {
-    const projects = await db.select().from(projectsTable);
+    const allProjects = await db.select().from(projectsTable);
+    const projects = allProjects.filter((p) => p.status !== "archived");
+    const activeProjectIds = new Set(projects.map((p) => p.id));
 
     const totalProjects = projects.length;
     const totalApproved = projects.filter((p) => p.status === "approved").length;
+    const totalConditionalApproval = projects.filter((p) => p.status === "conditional_approval").length;
+    const totalRejected = projects.filter((p) => p.status === "rejected").length;
     const totalInReview = projects.filter((p) => p.status === "review").length;
     const totalDraft = projects.filter((p) => p.status === "draft").length;
     const totalInvestment = projects.reduce((sum, p) => {
@@ -33,6 +37,8 @@ router.get("/dashboard/summary", async (req, res) => {
     let calcCount = 0;
 
     for (const scenario of allScenarios) {
+      if (!activeProjectIds.has(scenario.projectId)) continue;
+
       const [calc] = await db
         .select()
         .from(calculationsTable)
@@ -70,6 +76,8 @@ router.get("/dashboard/summary", async (req, res) => {
     return res.json({
       totalProjects,
       totalApproved,
+      totalConditionalApproval,
+      totalRejected,
       totalInReview,
       totalDraft,
       avgNpv,
@@ -93,7 +101,11 @@ router.get("/dashboard/projects", async (req, res) => {
 
     const result = [];
     for (const project of projects) {
-      if (status && project.status !== status) continue;
+      if (status) {
+        if (project.status !== status) continue;
+      } else if (project.status === "archived") {
+        continue;
+      }
 
       const [baselineScenario] = await db
         .select()

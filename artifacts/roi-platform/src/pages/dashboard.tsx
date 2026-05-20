@@ -1,11 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useGetDashboardSummary,
   useGetDashboardProjects,
-  useSheetsExport,
-  useSheetsImport,
 } from "@workspace/api-client-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,7 +25,6 @@ import {
   Bar,
   XAxis,
   YAxis,
-  CartesianGrid,
   Tooltip as RechartsTooltip,
   ResponsiveContainer,
   PieChart,
@@ -39,15 +37,13 @@ import {
   Download,
   ExternalLink,
   Loader2,
-
 } from "lucide-react";
 
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/1kysyHbkIsz_G5GbJEnbiuF6Qb4n2VduqsicjIsFP3gs";
 
-// ─── Formatters ───────────────────────────────────────────────────────────────
+const fmtMoney = (v: number | null | undefined, decimals = 0): ReactNode => {
+  if (v == null || Number.isNaN(v)) return <span className="text-slate-400">—</span>;
 
-const fmt$ = (v: number | null | undefined, decimals = 0) => {
-  if (v == null) return <span className="text-slate-400">—</span>;
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -58,49 +54,75 @@ const fmt$ = (v: number | null | undefined, decimals = 0) => {
   }).format(v);
 };
 
-const fmtPct = (v: number | null | undefined, decimals = 1) => {
-  if (v == null) return <span className="text-slate-400">—</span>;
+const fmtMoneyText = (v: number | null | undefined) => {
+  if (v == null || Number.isNaN(v)) return "—";
+
+  return new Intl.NumberFormat("en-US", {
+  style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+    notation: Math.abs(v) >= 1_000_000 ? "compact" : "standard",
+    compactDisplay: "short",
+  }).format(v);
+};
+
+const fmtPct = (v: number | null | undefined, decimals = 1): ReactNode => {
+  if (v == null || Number.isNaN(v)) return <span className="text-slate-400">—</span>;
   return `${v.toFixed(decimals)}%`;
 };
 
-const fmtDec = (v: number | null | undefined, decimals = 2) => {
-  if (v == null) return <span className="text-slate-400">—</span>;
+const fmtDec = (v: number | null | undefined, decimals = 2): ReactNode => {
+  if (v == null || Number.isNaN(v)) return <span className="text-slate-400">—</span>;
   return v.toFixed(decimals);
 };
 
-// ─── Status helpers ───────────────────────────────────────────────────────────
-
 const STATUS_STYLES: Record<string, string> = {
-  approved: "bg-emerald-100 text-emerald-700 border-emerald-200",
-  review:   "bg-amber-100  text-amber-700  border-amber-200",
-  draft:    "bg-slate-100  text-slate-600  border-slate-200",
-  archived: "bg-rose-50    text-rose-500   border-rose-200",
+  approved: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  conditional_approval: "bg-blue-50 text-blue-700 border-blue-200",
+  review: "bg-amber-50 text-amber-700 border-amber-200",
+  draft: "bg-slate-100 text-slate-600 border-slate-200",
+  rejected: "bg-red-50 text-red-700 border-red-200",
+  archived: "bg-rose-50 text-rose-600 border-rose-200",
 };
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+const STATUS_LABELS: Record<string, string> = {
+  draft: "Draft",
+  review: "Review",
+  conditional_approval: "Conditional",
+  approved: "Approved",
+  rejected: "Rejected",
+  archived: "Archived",
+};
 
 function KpiCard({
   title,
   value,
+  hint,
   isLoading,
 }: {
   title: string;
-  value: React.ReactNode;
+  value: ReactNode;
+  hint?: string;
   isLoading: boolean;
 }) {
   return (
-    <Card className="min-w-0 shadow-sm border-slate-200/60">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 px-4 pt-4">
-        <CardTitle className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+    <Card className="border-slate-200/70 bg-white shadow-sm">
+      <CardContent className="p-4">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
           {title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="px-4 pb-4">
+        </div>
+
         {isLoading ? (
-          <Skeleton className="h-5 w-20" />
+          <Skeleton className="mt-3 h-7 w-20" />
         ) : (
-          <div className="text-sm sm:text-base lg:text-lg font-bold tracking-tighter break-all leading-tight text-slate-900">
+          <div className="mt-2 text-2xl font-bold leading-none tracking-tight text-slate-950">
             {value}
+          </div>
+        )}
+
+        {hint && (
+          <div className="mt-2 text-[11px] text-slate-500">
+            {hint}
           </div>
         )}
       </CardContent>
@@ -109,6 +131,7 @@ function KpiCard({
 }
 
 function SheetsSyncCard() {
+  const queryClient = useQueryClient();
   const [loadingAction, setLoadingAction] = useState<"import" | "export" | null>(null);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -134,6 +157,8 @@ function SheetsSyncCard() {
         type: "success",
         text: result.message || `${action} completed.`,
       });
+
+      await queryClient.invalidateQueries();
     } catch (error) {
       setMessage({
         type: "error",
@@ -145,65 +170,61 @@ function SheetsSyncCard() {
   }
 
   return (
-    <Card className="border-dashed border-emerald-500/50 bg-emerald-50/50 flex flex-col h-full overflow-hidden">
-      <CardHeader className="pb-2 px-4 pt-4">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
+    <Card className="border-emerald-200 bg-emerald-50/40 shadow-sm">
+      <CardHeader className="px-4 pb-2 pt-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
             <img
               src="https://ssl.gstatic.com/docs/doclist/images/drive_2022q3_32dp.png"
               className="h-4 w-4 shrink-0"
               alt="Google Drive"
             />
-            <CardTitle className="text-xs font-bold truncate text-slate-900">
+            <CardTitle className="truncate text-sm font-bold text-slate-950">
               Excel Record Sync
             </CardTitle>
           </div>
+
           <a
             href={SHEET_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-slate-400 hover:text-primary transition-colors"
+            className="text-slate-400 transition-colors hover:text-slate-700"
             aria-label="Open Google Sheet"
           >
-            <ExternalLink className="h-3 w-3" />
+            <ExternalLink className="h-4 w-4" />
           </a>
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-3 px-4 pb-4 flex-1 flex flex-col justify-between">
-        <div className="space-y-1 mt-1">
-          <p className="text-[10px] text-slate-500 leading-relaxed">
-            <span className="font-semibold text-slate-700">Input:</span> Create and edit assumptions in the platform.
-          </p>
-          <p className="text-[10px] text-slate-500 leading-relaxed">
-            <span className="font-semibold text-slate-700">Output:</span> Export the latest ROI record to Excel / Google Sheet.
-          </p>
-        </div>
+      <CardContent className="space-y-3 px-4 pb-4">
+        <p className="text-[11px] leading-relaxed text-slate-600">
+          Sync the latest ROI records with the working Google Sheet.
+        </p>
 
-        <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2">
           <Button
             variant="outline"
-            className="w-full h-8 text-xs gap-2 bg-white"
+            className="h-8 bg-white text-xs"
             disabled={loadingAction !== null}
             onClick={() => runSync("export")}
           >
             {loadingAction === "export" ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
             ) : (
-              <Upload className="h-3.5 w-3.5" />
+              <Upload className="mr-1.5 h-3.5 w-3.5" />
             )}
             Export
           </Button>
 
           <Button
-            className="w-full h-8 text-xs gap-2"
+            className="h-8 text-xs"
             disabled={loadingAction !== null}
             onClick={() => runSync("import")}
           >
             {loadingAction === "import" ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
             ) : (
-              <Download className="h-3.5 w-3.5" />
+              <Download className="mr-1.5 h-3.5 w-3.5" />
             )}
             Import
           </Button>
@@ -213,8 +234,8 @@ function SheetsSyncCard() {
           <div
             className={
               message.type === "success"
-                ? "rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[9px] text-emerald-700"
-                : "rounded border border-red-200 bg-red-50 px-2 py-1 text-[9px] text-red-600"
+                ? "rounded-md border border-emerald-200 bg-white px-2 py-1.5 text-[10px] text-emerald-700"
+                : "rounded-md border border-red-200 bg-white px-2 py-1.5 text-[10px] text-red-600"
             }
           >
             {message.text}
@@ -225,7 +246,111 @@ function SheetsSyncCard() {
   );
 }
 
-// ─── Main Dashboard ───────────────────────────────────────────────────────────
+function MiniStatusCard({
+  byStatus,
+  isLoading,
+}: {
+  byStatus: Array<{ status: string; count: number }>;
+  isLoading: boolean;
+}) {
+  const COLORS = ["#2563eb", "#10b981", "#f59e0b", "#ef4444", "#64748b"];
+
+  return (
+    <Card className="border-slate-200/70 bg-white shadow-sm">
+      <CardHeader className="px-4 pb-1 pt-4">
+        <CardTitle className="text-sm font-bold text-slate-950">
+          Status Distribution
+        </CardTitle>
+      </CardHeader>
+
+      <CardContent className="px-4 pb-4">
+        {isLoading ? (
+          <Skeleton className="h-40 w-full" />
+        ) : (
+          <div className="grid grid-cols-[120px_1fr] items-center gap-3">
+            <div className="h-[120px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={byStatus}
+                    dataKey="count"
+                    nameKey="status"
+                    innerRadius={34}
+                    outerRadius={52}
+                    paddingAngle={3}
+                  >
+                    {byStatus.map((entry, index) => (
+                      <Cell key={entry.status} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="space-y-2">
+              {byStatus.map((item, index) => (
+                <div key={item.status} className="flex items-center justify-between gap-2 text-xs">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                    />
+                    <span className="truncate text-slate-600">
+                      {STATUS_LABELS[item.status] ?? item.status}
+                    </span>
+                  </div>
+                  <span className="font-semibold text-slate-900">{item.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function RegionCard({
+  byRegion,
+  isLoading,
+}: {
+  byRegion: Array<{ region: string; count: number }>;
+  isLoading: boolean;
+}) {
+  return (
+    <Card className="border-slate-200/70 bg-white shadow-sm">
+      <CardHeader className="px-4 pb-1 pt-4">
+        <CardTitle className="text-sm font-bold text-slate-950">
+          Regional Footprint
+        </CardTitle>
+      </CardHeader>
+
+      <CardContent className="px-4 pb-4">
+        {isLoading ? (
+          <Skeleton className="h-32 w-full" />
+        ) : (
+          <div className="h-[150px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={byRegion} margin={{ top: 6, right: 8, left: -20, bottom: 0 }}>
+                <XAxis dataKey="region" tickLine={false} axisLine={false} fontSize={11} />
+                <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={11} />
+                <RechartsTooltip
+                  cursor={{ fill: "rgba(148, 163, 184, 0.12)" }}
+                  contentStyle={{
+                    borderRadius: 10,
+                    border: "1px solid #e2e8f0",
+                    fontSize: 12,
+                  }}
+                />
+                <Bar dataKey="count" radius={[6, 6, 0, 0]} fill="#2563eb" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function Dashboard() {
   const { data: summary, isLoading: isSummaryLoading } = useGetDashboardSummary();
@@ -234,248 +359,220 @@ export default function Dashboard() {
     sortOrder: "desc",
   });
 
-  const COLORS = [
-    "hsl(var(--chart-1))",
-    "hsl(var(--chart-2))",
-    "hsl(var(--chart-3))",
-    "hsl(var(--chart-4))",
-  ];
+  const summaryAny = summary as any;
+  const projectRows = useMemo(() => {
+    const rows = Array.isArray(projects) ? projects : [];
+    return rows.filter((project: any) => project.status !== "archived");
+  }, [projects]);
+
+  const byRegion = Array.isArray(summaryAny?.byRegion) ? summaryAny.byRegion : [];
+  const byStatus = Array.isArray(summaryAny?.byStatus) ? summaryAny.byStatus : [];
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-full overflow-hidden bg-slate-50/20">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Executive Dashboard</h1>
-        <p className="text-slate-500 text-xs font-medium">
-          Portfolio overview — capital allocation, returns and regional footprint.
-        </p>
-      </div>
+    <div className="min-h-screen bg-slate-50/40 p-4 sm:p-6">
+      <div className="mx-auto flex max-w-[1500px] flex-col gap-5">
+        <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-end">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-950">
+              Executive Dashboard
+            </h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Portfolio overview for capital allocation, financial returns, and regional exposure.
+            </p>
+          </div>
 
-      {/* KPI Cards */}
-      <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-        <KpiCard title="Total Projects"   value={summary?.totalProjects ?? 0}  isLoading={isSummaryLoading} />
-        <KpiCard title="Approved"         value={summary?.totalApproved  ?? 0}  isLoading={isSummaryLoading} />
-        <KpiCard title="In Review"        value={summary?.totalInReview  ?? 0}  isLoading={isSummaryLoading} />
-        <KpiCard title="Draft"            value={summary?.totalDraft     ?? 0}  isLoading={isSummaryLoading} />
-        <KpiCard
-          title="Avg NPV"
-          value={fmt$(summary?.avgNpv)}
-          isLoading={isSummaryLoading}
-        />
-        <KpiCard
-          title="Total Investment"
-          value={fmt$(summary?.totalInvestment)}
-          isLoading={isSummaryLoading}
-        />
-      </div>
+          <div className="flex items-center gap-2 rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs text-slate-600 shadow-sm">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            Active portfolio view
+          </div>
+        </div>
 
-      {/* Charts row */}
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-        <Card className="h-full border-slate-200/60 shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-bold text-slate-700">Projects by Region</CardTitle>
-          </CardHeader>
-          <CardContent className="h-[200px] pt-0">
-            {isSummaryLoading ? (
-              <Skeleton className="w-full h-full" />
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={summary?.byRegion ?? []}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="region" fontSize={10} tickLine={false} axisLine={false} stroke="#94a3b8" />
-                  <YAxis fontSize={10} tickLine={false} axisLine={false} stroke="#94a3b8" />
-                  <RechartsTooltip cursor={{ fill: "#f8fafc" }} />
-                  <Bar dataKey="count" fill="hsl(var(--primary))" radius={[3, 3, 0, 0]} barSize={28} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+          <KpiCard
+            title="Projects"
+            value={summaryAny?.totalProjects ?? 0}
+            hint="Active cases"
+            isLoading={isSummaryLoading}
+          />
+          <KpiCard
+            title="Approved"
+            value={summaryAny?.totalApproved ?? 0}
+            isLoading={isSummaryLoading}
+          />
+          <KpiCard
+            title="In Review"
+            value={summaryAny?.totalInReview ?? 0}
+            isLoading={isSummaryLoading}
+          />
+          <KpiCard
+            title="Draft"
+            value={summaryAny?.totalDraft ?? 0}
+            isLoading={isSummaryLoading}
+          />
+          <KpiCard
+            title="Investment"
+            value={fmtMoney(summaryAny?.totalInvestment)}
+            isLoading={isSummaryLoading}
+          />
+          <KpiCard
+            title="Avg NPV"
+            value={fmtMoney(summaryAny?.avgNpv)}
+            isLoading={isSummaryLoading}
+          />
+        </div>
 
-        <Card className="h-full border-slate-200/60 shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-bold text-slate-700">Status Distribution</CardTitle>
-          </CardHeader>
-          <CardContent className="h-[200px] pt-0">
-            {isSummaryLoading ? (
-              <Skeleton className="w-full h-full" />
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={summary?.byStatus ?? []}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={48}
-                    outerRadius={72}
-                    paddingAngle={4}
-                    dataKey="count"
-                    nameKey="status"
-                  >
-                    {(summary?.byStatus ?? []).map((_, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} stroke="none" />
-                    ))}
-                  </Pie>
-                  <RechartsTooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
+        <div className="space-y-5">
+          <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-[1.25fr_1fr_1fr_.85fr]">
+            <SheetsSyncCard />
+            <MiniStatusCard byStatus={byStatus} isLoading={isSummaryLoading} />
+            <RegionCard byRegion={byRegion} isLoading={isSummaryLoading} />
 
-        <SheetsSyncCard />
-      </div>
+            <Card className="border-slate-200/70 bg-white shadow-sm">
+              <CardContent className="p-4">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Portfolio Note
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-slate-600">
+                  Focus on NPV, PI, CM%, and payback together. A high sales case may still need review if
+                  capital efficiency or downside risk is weak.
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+          <Card className="overflow-hidden border-slate-200/70 bg-white shadow-sm">
+            <CardHeader className="border-b border-slate-100 px-5 py-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <CardTitle className="text-base font-bold text-slate-950">
+                    Project Portfolio
+                  </CardTitle>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Key financial outputs by project. Archived projects are excluded.
+                  </p>
+                </div>
 
-      {/* Project KPI Table */}
-      <Card className="border-slate-200/60 shadow-sm">
-        <CardHeader className="pb-3 border-b border-slate-100">
-          <CardTitle className="text-xs font-bold text-slate-700">
-            Project Portfolio — Key Output Metrics
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-0 overflow-x-auto">
-          <div className="min-w-[1100px]">
-            <Table>
-              <TableHeader className="bg-slate-50/70">
-                <TableRow>
-                  <TableHead className="py-2 px-5 text-[10px] uppercase font-bold text-slate-400 whitespace-nowrap">Project</TableHead>
-                  <TableHead className="py-2 text-[10px] uppercase font-bold text-slate-400 whitespace-nowrap">Status</TableHead>
-                  <TableHead className="py-2 text-[10px] uppercase font-bold text-slate-400 whitespace-nowrap">Sales Regions</TableHead>
-                  <TableHead className="py-2 text-right text-[10px] uppercase font-bold text-slate-400 whitespace-nowrap">Investment</TableHead>
-                  <TableHead className="py-2 text-right text-[10px] uppercase font-bold text-slate-400 whitespace-nowrap">Sales</TableHead>
-                  <TableHead className="py-2 text-right text-[10px] uppercase font-bold text-slate-400 whitespace-nowrap">CM</TableHead>
-                  <TableHead className="py-2 text-right text-[10px] uppercase font-bold text-slate-400 whitespace-nowrap">CM%</TableHead>
-                  <TableHead className="py-2 text-right text-[10px] uppercase font-bold text-slate-400 whitespace-nowrap">NPV</TableHead>
-                  <TableHead className="py-2 text-right text-[10px] uppercase font-bold text-slate-400 whitespace-nowrap">IRR</TableHead>
-                  <TableHead className="py-2 text-right text-[10px] uppercase font-bold text-slate-400 whitespace-nowrap">PI</TableHead>
-                  <TableHead className="py-2 pr-5 text-right text-[10px] uppercase font-bold text-slate-400 whitespace-nowrap">Payback (y)</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isProjectsLoading
-                  ? Array.from({ length: 4 }).map((_, i) => (
-                      <TableRow key={i}>
-                        <TableCell colSpan={11} className="p-4">
-                          <Skeleton className="h-4 w-full" />
-                        </TableCell>
+                <Link href="/projects">
+                  <Button variant="outline" size="sm" className="h-8 text-xs">
+                    Open Registry
+                  </Button>
+                </Link>
+              </div>
+            </CardHeader>
+
+            <CardContent className="p-0">
+              {isProjectsLoading ? (
+                <div className="space-y-3 p-5">
+                  {Array.from({ length: 7 }).map((_, index) => (
+                    <Skeleton key={index} className="h-10 w-full" />
+                  ))}
+                </div>
+              ) : (
+                <div className="max-h-[560px] overflow-auto">
+                  <Table>
+                    <TableHeader className="sticky top-0 z-10 bg-slate-50">
+                      <TableRow>
+                        <TableHead className="min-w-[260px] pl-5 text-[11px] uppercase tracking-wider text-slate-400">
+                          Project
+                        </TableHead>
+                        <TableHead className="text-[11px] uppercase tracking-wider text-slate-400">
+                          Status
+                        </TableHead>
+                        <TableHead className="text-right text-[11px] uppercase tracking-wider text-slate-400">
+                          Sales
+                        </TableHead>
+                        <TableHead className="text-right text-[11px] uppercase tracking-wider text-slate-400">
+                          CM%
+                        </TableHead>
+                        <TableHead className="text-right text-[11px] uppercase tracking-wider text-slate-400">
+                          NPV
+                        </TableHead>
+                        <TableHead className="text-right text-[11px] uppercase tracking-wider text-slate-400">
+                          IRR
+                        </TableHead>
+                        <TableHead className="pr-5 text-right text-[11px] uppercase tracking-wider text-slate-400">
+                          PI
+                        </TableHead>
                       </TableRow>
-                    ))
-                  : projects?.map((p) => {
-                      const npvPos = (p.npv ?? 0) >= 0;
-                      const cmPos  = (p.cm  ?? 0) >= 0;
-                      return (
-                        <TableRow key={p.id} className="hover:bg-slate-50/80 transition-colors">
-                          {/* Project name */}
-                          <TableCell className="py-2.5 px-5 font-medium text-xs min-w-[140px]">
-                            <div className="flex flex-col gap-0.5">
-                              <Link
-                                href={`/projects/${p.id}`}
-                                className="text-primary hover:underline underline-offset-4 font-semibold"
-                              >
-                                {p.name}
-                              </Link>
-                              {p.productCategory && (
-                                <span className="text-[10px] text-slate-400 font-mono">
-                                  {p.productCategory}
-                                </span>
-                              )}
-                            </div>
-                          </TableCell>
+                    </TableHeader>
 
-                          {/* Status */}
-                          <TableCell className="py-2.5">
-                            <span
-                              className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-semibold border capitalize ${
-                                STATUS_STYLES[p.status] ?? STATUS_STYLES.draft
+                    <TableBody>
+                      {projectRows.map((project: any) => {
+                        const statusClass =
+                          STATUS_STYLES[project.status] ?? "bg-slate-100 text-slate-600 border-slate-200";
+
+                        return (
+                          <TableRow key={project.id} className="hover:bg-slate-50/80">
+                            <TableCell className="pl-5">
+                              <Link
+                                href={`/projects/${project.id}`}
+                                className="font-semibold text-blue-600 hover:underline"
+                              >
+                                {project.name}
+                              </Link>
+                              <div className="mt-0.5 text-[11px] text-slate-400">
+                                {project.productCategory ?? "—"} · {project.region}
+                              </div>
+                            </TableCell>
+
+                            <TableCell>
+                           <Badge className={`${statusClass} border text-[10px] shadow-none`}>
+                                {STATUS_LABELS[project.status] ?? project.status}
+                              </Badge>
+                            </TableCell>
+
+                            <TableCell className="text-right font-mono text-sm text-slate-700">
+                              {fmtMoney(project.totalRevenue)}
+                            </TableCell>
+
+                            <TableCell className="text-right font-mono text-sm font-semibold text-emerald-600">
+                              {fmtPct(project.cmPct)}
+                            </TableCell>
+
+                            <TableCell
+                              className={`text-right font-mono text-sm font-semibold ${
+                                project.npv == null
+                                  ? "text-slate-400"
+                                  : project.npv >= 0
+                                    ? "text-emerald-600"
+                                    : "text-rose-600"
                               }`}
                             >
-                              {p.status}
-                            </span>
-                          </TableCell>
+                              {fmtMoney(project.npv)}
+                            </TableCell>
 
-                          {/* Sales regions */}
-                          <TableCell className="py-2.5 min-w-[120px]">
-                            <div className="flex flex-wrap gap-1">
-                              {/* Primary manufacturing/booking region */}
-                              <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-mono font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                                {p.region}
-                              </span>
-                              {/* Additional sales regions */}
-                              {(p.salesRegions ?? []).map((r) => (
-                                <span
-                                  key={r}
-                                  className="inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-mono bg-slate-100 text-slate-600 border border-slate-200"
-                                >
-                                  {r}
-                                </span>
-                              ))}
-                            </div>
-                          </TableCell>
+                            <TableCell className="text-right font-mono text-sm text-slate-700">
+                              {fmtPct(project.irr)}
+                            </TableCell>
 
-                          {/* Investment */}
-                          <TableCell className="py-2.5 text-right font-mono text-xs text-slate-600">
-                            {fmt$(p.investmentSize)}
-                          </TableCell>
+                            <TableCell
+                              className={`pr-5 text-right font-mono text-sm font-semibold ${
+                                project.pi == null
+                                  ? "text-slate-400"
+                                  : project.pi >= 1
+                                    ? "text-emerald-600"
+                                    : "text-rose-600"
+                              }`}
+                            >
+                              {fmtDec(project.pi)}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
 
-                          {/* Sales (totalRevenue) */}
-                          <TableCell className="py-2.5 text-right font-mono text-xs text-slate-700">
-                            {fmt$(p.totalRevenue)}
-                          </TableCell>
+                  {projectRows.length === 0 && (
+                    <div className="p-10 text-center text-sm text-slate-500">
+                      No active projects to display.
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-                          {/* CM */}
-                          <TableCell
-                            className={`py-2.5 text-right font-mono text-xs font-semibold ${
-                              cmPos ? "text-emerald-600" : "text-rose-500"
-                            }`}
-                          >
-                            {fmt$(p.cm)}
-                          </TableCell>
-
-                          {/* CM% */}
-                          <TableCell
-                            className={`py-2.5 text-right font-mono text-xs font-semibold ${
-                              (p.cmPct ?? 0) >= 0 ? "text-emerald-600" : "text-rose-500"
-                            }`}
-                          >
-                            {fmtPct(p.cmPct)}
-                          </TableCell>
-
-                          {/* NPV */}
-                          <TableCell
-                            className={`py-2.5 text-right font-mono text-xs font-bold ${
-                              npvPos ? "text-emerald-600" : "text-rose-500"
-                            }`}
-                          >
-                            {fmt$(p.npv)}
-                          </TableCell>
-
-                          {/* IRR */}
-                          <TableCell className="py-2.5 text-right font-mono text-xs text-slate-700">
-                            {fmtPct(p.irr != null ? p.irr * 100 : null)}
-                          </TableCell>
-
-                          {/* PI */}
-                          <TableCell
-                            className={`py-2.5 text-right font-mono text-xs font-semibold ${
-                              (p.pi ?? 0) >= 1 ? "text-emerald-600" : "text-rose-500"
-                            }`}
-                          >
-                            {fmtDec(p.pi)}
-                          </TableCell>
-
-                          {/* Payback */}
-                          <TableCell className="py-2.5 pr-5 text-right font-mono text-xs text-slate-700">
-                            {p.paybackPeriod != null
-                              ? `${p.paybackPeriod.toFixed(1)}y`
-                              : <span className="text-slate-400">—</span>}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }
