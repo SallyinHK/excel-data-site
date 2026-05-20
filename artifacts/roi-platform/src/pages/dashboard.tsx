@@ -124,38 +124,20 @@ function SheetsSyncCard() {
         },
       });
 
-      const text = await response.text();
-      let data: any = {};
+      const result = await response.json();
 
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch {
-        data = { raw: text };
+      if (!response.ok || result.ok === false) {
+        throw new Error(result.error || `${action} failed.`);
       }
 
-      if (!response.ok) {
-        throw new Error(data?.message || data?.error || `${action} failed`);
-      }
-
-      if (action === "import") {
-        setMessage({
-          type: "success",
-          text: `Import completed. Updated ${data?.updated ?? data?.count ?? "data"} item(s).`,
-        });
-
-        setTimeout(() => {
-          window.location.reload();
-        }, 800);
-      } else {
-        setMessage({
-          type: "success",
-          text: "Export completed. Google Sheet output has been refreshed.",
-        });
-      }
-    } catch (err) {
+      setMessage({
+        type: "success",
+        text: result.message || `${action} completed.`,
+      });
+    } catch (error) {
       setMessage({
         type: "error",
-        text: err instanceof Error ? err.message : `${action} failed`,
+        text: error instanceof Error ? error.message : `${action} failed.`,
       });
     } finally {
       setLoadingAction(null);
@@ -173,7 +155,7 @@ function SheetsSyncCard() {
               alt="Google Drive"
             />
             <CardTitle className="text-xs font-bold truncate text-slate-900">
-              Sheets Sync
+              Excel Record Sync
             </CardTitle>
           </div>
           <a
@@ -191,10 +173,10 @@ function SheetsSyncCard() {
       <CardContent className="space-y-3 px-4 pb-4 flex-1 flex flex-col justify-between">
         <div className="space-y-1 mt-1">
           <p className="text-[10px] text-slate-500 leading-relaxed">
-            <span className="font-semibold text-slate-700">Input:</span> Import financial data from Google Sheet.
+            <span className="font-semibold text-slate-700">Input:</span> Create and edit assumptions in the platform.
           </p>
           <p className="text-[10px] text-slate-500 leading-relaxed">
-            <span className="font-semibold text-slate-700">Output:</span> Export latest NPV / IRR results.
+            <span className="font-semibold text-slate-700">Output:</span> Export the latest ROI record to Excel / Google Sheet.
           </p>
         </div>
 

@@ -1,8 +1,15 @@
 /**
- * Google Sheets sync helper — uses @replit/connectors-sdk
- * Integration: Google Sheets (connector:ccfg_google-sheet_E42A9F6CA62546F68A1FECA0E8)
+ * Google Sheets sync helper.
+ * Render version uses Google Sheets REST API with a Google service account.
+ *
+ * Required environment variables:
+ * GOOGLE_SERVICE_ACCOUNT_EMAIL
+ * GOOGLE_PRIVATE_KEY
+ *
+ * Optional environment variable:
+ * GOOGLE_SHEET_ID
  */
-import { ReplitConnectors } from "@replit/connectors-sdk";
+import { createSign } from "node:crypto";
 import { db } from "@workspace/db";
 import {
   projectsTable,
@@ -17,7 +24,8 @@ import { eq, desc, and, ne } from "drizzle-orm";
 import { calculateROI } from "./calculations";
 import { logger } from "./logger";
 
-const SHEET_ID = "1kysyHbkIsz_G5GbJEnbiuF6Qb4n2VduqsicjIsFP3gs";
+const DEFAULT_SHEET_ID = "1kysyHbkIsz_G5GbJEnbiuF6Qb4n2VduqsicjIsFP3gs";
+const SHEET_ID = process.env.GOOGLE_SHEET_ID || DEFAULT_SHEET_ID;
 export const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}`;
 
 const INPUT_HEADERS = [
@@ -51,19 +59,157 @@ const OUTPUT_HEADERS = [
   "Last Synced (HKT)",
 ];
 
+function base64url(value: string | Buffer): string {
+  return Buffer.from(value)
+    .toString("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+}
+
+function normalizePrivateKey(key: string): string {
+  return key.replace(/\\n/g, "\n");
+}
+
+function getServiceAccountConfig(): { email: string; privateKey: string } {
+  const rawJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (rawJson) {
+    const parsed = JSON.parse(rawJson) as { client_email?: string; private_key?: string };
+    if (!parsed.client_email || !parsed.private_key) {
+      throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON must include client_email and private_key.");
+    }
+    return {
+      email: parsed.client_email,
+      privateKey: normalizePrivateKey(parsed.private_key),
+    };
+  }
+
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const privateKey = process.env.GOOGLE_PRIVATE_KEY;
+
+  if (!email || !privateKey) {
+    throw new Error(
+      "Google Sheets credentials are missing. Set GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_PRIVATE_KEY in Render."
+    );
+  }
+
+  return {
+    email,
+    privateKey: normalizePrivateKey(privateKey),
+  };
+}
+
+let cachedToken: { token: string; expiresAt: number } | null = null;
+
+async function getAccessToken(): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  if (cachedToken && cachedToken.expiresAt - 60 > now) {
+    return cachedToken.token;
+  }
+
+  const { email, privateKey } = getServiceAccountConfig();
+
+  const header = {
+    alg: "RS256",
+    typ: "JWT",
+  };
+
+  const claim = {
+    iss: email,
+    scope: "https://www.googleapis.com/auth/spreadsheets",
+    aud: "https://oauth2.googleapis.com/token",
+    exp: now + 3600,
+    iat: now,
+  };
+
+  const unsignedJwt = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(claim))}`;
+
+  const signer = createSign("RSA-SHA256");
+  signer.update(unsignedJwt);
+  signer.end();
+
+  const signature = signer.sign(privateKey);
+  const assertion = `${unsignedJwt}.${base64url(signature)}`;
+
+  const body = new URLSearchParams({
+    grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+    assertion,
+  });
+
+  const resp = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body,
+  });
+
+  const text = await resp.text();
+  if (!resp.ok) {
+    throw new Error(`Google OAuth token request failed: ${resp.status} ${text}`);
+  }
+
+  const json = JSON.parse(text) as { access_token?: string; expires_in?: number };
+  if (!json.access_token) {
+    throw new Error("Google OAuth token response did not include access_token.");
+  }
+
+  cachedToken = {
+    token: json.access_token,
+    expiresAt: now + (json.expires_in ?? 3600),
+  };
+
+  return cachedToken.token;
+}
+
 async function sheetsRequest(
   path: string,
   method = "GET",
   body?: unknown
 ): Promise<unknown> {
-  const connectors = new ReplitConnectors();
-  const opts: { method: string; headers?: Record<string, string>; body?: string } = { method };
-  if (body !== undefined) {
-    opts.headers = { "Content-Type": "application/json" };
-    opts.body = JSON.stringify(body);
+  const token = await getAccessToken();
+  const isWrite = method !== "GET";
+
+  const resp = await fetch(`https://sheets.googleapis.com${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(isWrite || body !== undefined ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : isWrite ? "{}" : undefined,
+  });
+
+  const text = await resp.text();
+  if (!resp.ok) {
+    throw new Error(`Google Sheets API ${method} ${path} failed: ${resp.status} ${text}`);
   }
-  const resp = await connectors.proxy("google-sheet", path, opts);
-  return resp.json();
+
+  return text ? JSON.parse(text) : {};
+}
+
+function normalizeStatus(value: unknown): string {
+  const raw = String(value ?? "").trim().toLowerCase();
+
+  if (raw === "approved") return "approved";
+  if (raw === "review" || raw === "in review" || raw === "finance review") return "review";
+  if (raw === "draft") return "draft";
+  if (raw === "archived") return "archived";
+  if (raw === "rejected") return "draft";
+
+  return "draft";
+}
+
+function asText(value: unknown): string {
+  return value == null ? "" : String(value).trim();
+}
+
+function asNumber(value: unknown): number {
+  if (typeof value === "number") return value;
+  const cleaned = String(value ?? "")
+    .replace(/[$,%\s,]/g, "")
+    .trim();
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
 }
 
 /** Push all DB inputs and calculation results to the spreadsheet. */
@@ -223,9 +369,9 @@ export async function importFromSheets(): Promise<{
   errors: string[];
 }> {
   const raw = (await sheetsRequest(
-    `/v4/spreadsheets/${SHEET_ID}/values/Input!A1:J1000`
-  )) as { values?: string[][] };
-  const rows: string[][] = raw.values ?? [];
+    `/v4/spreadsheets/${SHEET_ID}/values/Input!A1:K1000?valueRenderOption=UNFORMATTED_VALUE`
+  )) as { values?: unknown[][] };
+  const rows: unknown[][] = raw.values ?? [];
 
   if (rows.length <= 1) {
     return { updated: 0, calculated: 0, errors: [] };
@@ -233,7 +379,7 @@ export async function importFromSheets(): Promise<{
 
   const dataRows = rows
     .slice(1)
-    .filter((r) => r.length >= 10 && r[0]?.trim() && r[4]?.trim() && r[5]?.trim());
+    .filter((r) => r.length >= 10 && asText(r[0]) && asText(r[4]) && asText(r[5]));
 
   type YearEntry = {
     year: number;
@@ -242,48 +388,56 @@ export async function importFromSheets(): Promise<{
     opex: number;
     capex: number;
   };
+
   type ScenarioMap = Map<string, YearEntry[]>;
+
   type ProjectEntry = {
     region: string;
     category: string;
     investment: string;
+    status: string;
     scenarios: ScenarioMap;
   };
 
   const projectMap = new Map<string, ProjectEntry>();
 
   for (const row of dataRows) {
-    const [
-      projectName,
-      region,
-      category,
-      investment,
-      scenarioName,
-      yearStr,
-      revenueStr,
-      cogsStr,
-      opexStr,
-      capexStr,
-    ] = row.map((v) => v?.trim() ?? "");
+    const projectName = asText(row[0]);
+    const region = asText(row[1]) || "NA";
+    const category = asText(row[2]);
+    const investment = asText(row[3]);
+    const scenarioName = asText(row[4]) || "Baseline";
+    const year = Math.trunc(asNumber(row[5]));
+    const revenue = asNumber(row[6]);
+    const cogs = asNumber(row[7]);
+    const opex = asNumber(row[8]);
+    const capex = asNumber(row[9]);
+    const status = normalizeStatus(row[10]);
 
-    const year = parseInt(yearStr);
-    if (isNaN(year) || year < 1) continue;
+    if (!projectName || isNaN(year) || year < 1) continue;
 
     if (!projectMap.has(projectName)) {
-      projectMap.set(projectName, { region, category, investment, scenarios: new Map() });
+      projectMap.set(projectName, {
+        region,
+        category,
+        investment,
+        status,
+        scenarios: new Map(),
+      });
     }
+
     const pd = projectMap.get(projectName)!;
     if (!pd.scenarios.has(scenarioName)) pd.scenarios.set(scenarioName, []);
+
     pd.scenarios.get(scenarioName)!.push({
       year,
-      revenue: parseFloat(revenueStr) || 0,
-      cogs: parseFloat(cogsStr) || 0,
-      opex: parseFloat(opexStr) || 0,
-      capex: parseFloat(capexStr) || 0,
+      revenue,
+      cogs,
+      opex,
+      capex,
     });
   }
 
-  // Fetch governance config once (outside the per-project loop)
   const [formula] = await withRetry(
     () => db.select().from(formulaDefinitionsTable).orderBy(desc(formulaDefinitionsTable.version)).limit(1),
     "fetch formula"
@@ -296,15 +450,15 @@ export async function importFromSheets(): Promise<{
 
   for (const [projectName, pd] of projectMap) {
     try {
-      // Resolve or create project
       const existingProjects = await withRetry(
         () => db.select().from(projectsTable).where(eq(projectsTable.name, projectName)),
         `find project "${projectName}"`
       );
+
       let project = existingProjects.find((p) => p.status !== "archived") ?? existingProjects[0];
+      const inv = pd.investment ? asNumber(pd.investment) : null;
 
       if (!project) {
-        const inv = pd.investment ? parseFloat(pd.investment) : null;
         [project] = await withRetry(
           () =>
             db
@@ -314,12 +468,27 @@ export async function importFromSheets(): Promise<{
                 region: pd.region || "NA",
                 productCategory: pd.category || null,
                 investmentSize: inv != null ? String(inv) : null,
-                status: "draft",
+                status: pd.status,
                 createdBy: "sheets-import",
                 description: "Imported from Google Sheets",
               })
               .returning(),
           `create project "${projectName}"`
+        );
+      } else {
+        [project] = await withRetry(
+          () =>
+            db
+              .update(projectsTable)
+              .set({
+                region: pd.region || project.region,
+                productCategory: pd.category || project.productCategory,
+                investmentSize: inv != null ? String(inv) : project.investmentSize,
+                status: pd.status || project.status,
+              })
+              .where(eq(projectsTable.id, project.id))
+              .returning(),
+          `update project "${projectName}"`
         );
       }
 
@@ -331,17 +500,19 @@ export async function importFromSheets(): Promise<{
 
       for (const [scenarioName, yearInputs] of pd.scenarios) {
         const label = `"${scenarioName}" in "${projectName}"`;
+
         try {
-          // All writes for this scenario run inside one transaction with retry
           await withRetry(async () => {
             await db.transaction(async (tx) => {
-              // Resolve or create scenario
               const allScenarios = await tx
                 .select()
                 .from(scenariosTable)
                 .where(eq(scenariosTable.projectId, project.id));
+
               let scenario =
                 allScenarios.find((s) => s.name.toLowerCase() === scenarioName.toLowerCase()) ?? null;
+
+              const lifecycleYears = Math.max(...yearInputs.map((y) => y.year));
 
               if (!scenario) {
                 [scenario] = await tx
@@ -349,14 +520,13 @@ export async function importFromSheets(): Promise<{
                   .values({
                     projectId: project.id,
                     name: scenarioName,
-                    lifecycleYears: Math.max(...yearInputs.map((y) => y.year)),
-                    isBaseline: allScenarios.length === 0 ? "true" : "false",
+                    lifecycleYears,
+                    isBaseline: allScenarios.length === 0 || scenarioName.toLowerCase() === "baseline" ? "true" : "false",
                     assumptionsSummary: "Imported from Google Sheets",
                   })
                   .returning();
               }
 
-              // Upsert financial inputs
               const existingInputs = await tx
                 .select()
                 .from(financialInputsTable)
@@ -364,6 +534,7 @@ export async function importFromSheets(): Promise<{
 
               for (const yd of yearInputs) {
                 const existing = existingInputs.find((r) => r.year === yd.year);
+
                 const vals = {
                   salesVolume: yd.revenue.toFixed(2),
                   netPrice: "1",
@@ -371,6 +542,7 @@ export async function importFromSheets(): Promise<{
                   opex: yd.opex.toFixed(2),
                   capex: yd.capex.toFixed(2),
                 };
+
                 if (existing) {
                   await tx
                     .update(financialInputsTable)
@@ -388,7 +560,6 @@ export async function importFromSheets(): Promise<{
                 }
               }
 
-              // Re-read all inputs to calculate
               const allInputs = await tx
                 .select()
                 .from(financialInputsTable)
@@ -404,9 +575,11 @@ export async function importFromSheets(): Promise<{
                   opex: parseFloat(i.opex),
                   capex: parseFloat(i.capex),
                 }));
+
                 const result = calculateROI(mapped, defaultWacc, taxRate);
 
                 await tx.delete(calculationsTable).where(eq(calculationsTable.scenarioId, scenario.id));
+
                 await tx.insert(calculationsTable).values({
                   scenarioId: scenario.id,
                   npv: result.npv.toFixed(2),
@@ -415,9 +588,11 @@ export async function importFromSheets(): Promise<{
                   roiPercent: result.roiPercent != null ? result.roiPercent.toFixed(4) : null,
                   totalRevenue: result.totalRevenue.toFixed(2),
                   totalCost: result.totalCost.toFixed(2),
+                  totalCogs: result.totalCogs.toFixed(2),
                   totalCapex: result.totalCapex.toFixed(2),
                   cashFlows: JSON.stringify(result.cashFlows),
                 });
+
                 await tx.insert(auditLogTable).values({
                   tableName: "calculations",
                   recordId: project.id,

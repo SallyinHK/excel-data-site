@@ -101,6 +101,45 @@ const STATUS_COLORS: Record<string, string> = {
 
 // ─── Section label ────────────────────────────────────────────────────────────
 
+
+
+function shouldShowAuditLog(log: any) {
+  return log.fieldName !== "demo_seed";
+}
+
+function formatAuditChange(log: any) {
+  if (log.fieldName === "status") return "Project status changed";
+  if (log.fieldName === "inputs_bulk_update") return "Financial inputs updated";
+  if (log.fieldName === "calculation_run") return "Calculation refreshed";
+  if (log.fieldName === "sheets_import") return "Sheet import calculated";
+  return log.fieldName || "Change recorded";
+}
+
+function formatAuditOldValue(log: any) {
+  if (log.fieldName === "inputs_bulk_update") return "—";
+  if (log.fieldName === "calculation_run") return "—";
+  return log.oldValue || "—";
+}
+
+function formatAuditNewValue(log: any) {
+  if (log.fieldName === "inputs_bulk_update") return "Inputs refreshed";
+  if (log.fieldName === "calculation_run") return log.newValue || "Calculation refreshed";
+  return log.newValue || "—";
+}
+
+
+function getAuditOldValue(log: any) {
+  if (log.fieldName === "inputs_bulk_update") return "—";
+  if (log.fieldName === "calculation_run") return "—";
+  return log.oldValue || "—";
+}
+
+function getAuditNewValue(log: any) {
+  if (log.fieldName === "inputs_bulk_update") return "Inputs refreshed";
+  if (log.fieldName === "calculation_run") return log.newValue || "Calculation refreshed";
+  return log.newValue || "—";
+}
+
 function SectionLabel({ num, label, icon: Icon }: { num: string; label: string; icon?: any }) {
   return (
     <div className="flex items-center gap-2 mb-3">
@@ -424,7 +463,7 @@ function FinancialInputsEditor({ scenarioId, project, onCalcDone }: { scenarioId
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30">
-                <TableHead className="w-48 text-[11px]">Field</TableHead>
+                <TableHead className="w-48 text-[11px]">Change</TableHead>
                 {years.map((y) => <TableHead key={y} className="text-center w-28 text-[11px]">Year {y}</TableHead>)}
               </TableRow>
             </TableHeader>
@@ -464,7 +503,7 @@ function FinancialInputsEditor({ scenarioId, project, onCalcDone }: { scenarioId
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30">
-                <TableHead className="w-48 text-[11px]">Field</TableHead>
+                <TableHead className="w-48 text-[11px]">Change</TableHead>
                 {years.map((y) => <TableHead key={y} className="text-center w-28 text-[11px]">Year {y}</TableHead>)}
               </TableRow>
             </TableHeader>
@@ -1392,26 +1431,26 @@ export default function ProjectDetail() {
         <Card>
           <CardHeader className="pb-0 px-4 pt-4 flex flex-row items-center gap-2">
             <History className="w-3.5 h-3.5 text-muted-foreground" />
-            <CardTitle className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Audit Trail</CardTitle>
+            <CardTitle className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Recent Changes</CardTitle>
           </CardHeader>
           <CardContent className="p-0 overflow-x-auto mt-3">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="pl-6 text-[11px]">Field</TableHead>
-                  <TableHead className="text-[11px]">Changed By</TableHead>
+                  <TableHead className="pl-6 text-[11px]">Change</TableHead>
+                  <TableHead className="text-[11px]">Actor</TableHead>
                   <TableHead className="text-[11px]">Old Value</TableHead>
                   <TableHead className="text-[11px]">New Value</TableHead>
-                  <TableHead className="pr-6 text-right text-[11px]">Timestamp</TableHead>
+                  <TableHead className="pr-6 text-right text-[11px]">Time</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {auditLog.slice(0, 15).map((log: any) => (
                   <TableRow key={log.id}>
-                    <TableCell className="pl-6 text-xs font-mono py-2">{log.fieldName}</TableCell>
+                    <TableCell className="pl-6 text-xs font-mono py-2">{formatAuditChange(log)}</TableCell>
                     <TableCell className="text-xs text-muted-foreground py-2">{log.changedBy}</TableCell>
-                    <TableCell className="text-xs font-mono text-muted-foreground max-w-[150px] truncate py-2">{log.oldValue ?? "—"}</TableCell>
-                    <TableCell className="text-xs font-mono max-w-[150px] truncate py-2">{log.newValue ?? "—"}</TableCell>
+                    <TableCell className="text-xs font-mono text-muted-foreground max-w-[150px] truncate py-2">{formatAuditOldValue(log)}</TableCell>
+                    <TableCell className="text-xs font-mono max-w-[150px] truncate py-2">{formatAuditNewValue(log)}</TableCell>
                     <TableCell className="pr-6 text-right text-[10px] text-muted-foreground py-2">
                       {new Date(log.changedAt).toLocaleString("en-HK", { timeZone: "Asia/Hong_Kong" })}
                     </TableCell>
