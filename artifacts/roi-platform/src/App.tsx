@@ -11,6 +11,7 @@ import ProjectDetail from "@/pages/projects/detail";
 import Formulas from "@/pages/admin/formulas";
 import Regions from "@/pages/admin/regions";
 import Simulator from "@/pages/simulator";
+import OnboardingGuide from "@/components/onboarding-guide";
 import ReportPage from "@/pages/reports/project";
 import NotFound from "@/pages/not-found";
 
@@ -49,6 +50,7 @@ function App() {
           <Router />
         </WouterRouter>
         <Toaster />
+              <OnboardingGuide />
       </TooltipProvider>
     </QueryClientProvider>
   );

@@ -94,7 +94,7 @@ function runCalc(rows: YearRow[], a: Assumptions) {
     const nopat = ebitda - tax;
     const fcf = nopat - r.capex;
     cumulative += fcf;
-    return { year: r.year, revenue, grossProfit, cmPct, ebitda, nopat, fcf, cumulative };
+    return { year: r.year, revenue, cogs: r.cogs, grossProfit, opex: r.opex, cmPct, ebitda, tax, nopat, capex: r.capex, fcf, cumulative };
   });
 
   const fcfArr = pl.map((r) => r.fcf);
@@ -164,9 +164,10 @@ function NumCell({ value, onChange }: { value: number; onChange: (v: number) => 
   return (
     <Input
       type="number"
-      className="h-7 text-xs font-mono text-right border-0 bg-transparent focus-visible:ring-1 focus-visible:ring-primary/50 px-1"
+      className="h-6 w-full min-w-[4.8rem] text-[10px] font-mono text-right tracking-tight border-0 bg-transparent focus-visible:ring-1 focus-visible:ring-primary/50 px-0.5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
       value={value === 0 ? "" : value}
       placeholder="0"
+      title={String(value || "")}
       onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
     />
   );
@@ -531,18 +532,18 @@ export default function Simulator() {
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/30">
-                        <TableHead className="w-36 text-[11px]">Field</TableHead>
-                        {years.map((y) => <TableHead key={y} className="text-center text-[11px] w-24">Year {y}</TableHead>)}
+                        <TableHead className="w-24 text-[11px]">Field</TableHead>
+                        {years.map((y) => <TableHead key={y} className="text-center text-[11px] w-[4.75rem]">Year {y}</TableHead>)}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       <TableRow>
                         <TableCell className="text-xs font-medium text-muted-foreground py-1">Unit Sales (qty)</TableCell>
-                        {rows.map((r) => <TableCell key={r.year} className="p-0.5"><NumCell value={r.salesVolume} onChange={(v) => setRow(r.year, "salesVolume", v)} /></TableCell>)}
+                        {rows.map((r) => <TableCell key={r.year} className="p-0.5 min-w-[4.9rem]"><NumCell value={r.salesVolume} onChange={(v) => setRow(r.year, "salesVolume", v)} /></TableCell>)}
                       </TableRow>
                       <TableRow>
                         <TableCell className="text-xs font-medium text-muted-foreground py-1">Net Price ($/unit)</TableCell>
-                        {rows.map((r) => <TableCell key={r.year} className="p-0.5"><NumCell value={r.netPrice} onChange={(v) => setRow(r.year, "netPrice", v)} /></TableCell>)}
+                        {rows.map((r) => <TableCell key={r.year} className="p-0.5 min-w-[4.9rem]"><NumCell value={r.netPrice} onChange={(v) => setRow(r.year, "netPrice", v)} /></TableCell>)}
                       </TableRow>
                       <TableRow className="bg-primary/5">
                         <TableCell className="text-xs font-semibold text-primary py-1.5">→ Revenue</TableCell>
@@ -560,13 +561,13 @@ export default function Simulator() {
               {/* ③ Costs */}
               <TabsContent value="costs" className="p-4 m-0">
                 <SLabel num="3" label="Cost Inputs" icon={Layers} />
-                <p className="text-[10px] text-muted-foreground mb-3">Variable costs and capital investment per year. COGS drives Gross Profit; CapEx drives FCF.</p>
+                <p className="text-[10px] text-muted-foreground mb-3">Variable costs and capital investment per year. Tax is calculated from the assumptions tab, so users can see how EBITDA becomes NOPAT and FCF.</p>
                 <div className="overflow-x-auto rounded-md border">
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/30">
-                        <TableHead className="w-36 text-[11px]">Field</TableHead>
-                        {years.map((y) => <TableHead key={y} className="text-center text-[11px] w-24">Year {y}</TableHead>)}
+                        <TableHead className="w-24 text-[11px]">Field</TableHead>
+                        {years.map((y) => <TableHead key={y} className="text-center text-[11px] w-[4.75rem]">Year {y}</TableHead>)}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -577,11 +578,11 @@ export default function Simulator() {
                       </TableRow>
                       <TableRow>
                         <TableCell className="text-xs font-medium text-muted-foreground py-1">COGS ($)</TableCell>
-                        {rows.map((r) => <TableCell key={r.year} className="p-0.5"><NumCell value={r.cogs} onChange={(v) => setRow(r.year, "cogs", v)} /></TableCell>)}
+                        {rows.map((r) => <TableCell key={r.year} className="p-0.5 min-w-[4.9rem]"><NumCell value={r.cogs} onChange={(v) => setRow(r.year, "cogs", v)} /></TableCell>)}
                       </TableRow>
                       <TableRow>
                         <TableCell className="text-xs font-medium text-muted-foreground py-1">OpEx ($)</TableCell>
-                        {rows.map((r) => <TableCell key={r.year} className="p-0.5"><NumCell value={r.opex} onChange={(v) => setRow(r.year, "opex", v)} /></TableCell>)}
+                        {rows.map((r) => <TableCell key={r.year} className="p-0.5 min-w-[4.9rem]"><NumCell value={r.opex} onChange={(v) => setRow(r.year, "opex", v)} /></TableCell>)}
                       </TableRow>
                       <TableRow className="bg-muted/10">
                         <TableCell className="text-xs font-semibold py-1.5">→ Gross Profit</TableCell>
@@ -601,8 +602,39 @@ export default function Simulator() {
                       </TableRow>
                       <TableRow>
                         <TableCell className="text-xs font-medium text-muted-foreground py-1">CapEx ($)</TableCell>
-                        {rows.map((r) => <TableCell key={r.year} className="p-0.5"><NumCell value={r.capex} onChange={(v) => setRow(r.year, "capex", v)} /></TableCell>)}
+                        {rows.map((r) => <TableCell key={r.year} className="p-0.5 min-w-[4.9rem]"><NumCell value={r.capex} onChange={(v) => setRow(r.year, "capex", v)} /></TableCell>)}
                       </TableRow>
+                      <TableRow>
+                        <TableCell colSpan={years.length + 1} className="py-1 px-3 bg-muted/20">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Calculated Operating Output</span>
+                        </TableCell>
+                      </TableRow>
+                      {[
+                        { label: "→ EBITDA", key: "ebitda" as const },
+                        { label: "→ Tax Expense", key: "tax" as const },
+                        { label: "→ NOPAT", key: "nopat" as const },
+                        { label: "→ Free Cash Flow", key: "fcf" as const },
+                      ].map(({ label, key }) => (
+                        <TableRow key={label} className={key === "fcf" ? "bg-primary/5" : "bg-muted/10"}>
+                          <TableCell className={`text-xs font-semibold py-1.5 ${key === "fcf" ? "text-primary" : ""}`}>
+                            {label}
+                          </TableCell>
+                          {rows.map((r) => {
+                            const row = calc.pl.find((item) => item.year === r.year);
+                            const v = row ? row[key] : 0;
+                            return (
+                              <TableCell
+                                key={r.year}
+                                className={`text-center text-xs font-mono font-semibold py-1.5 ${
+                                  v < 0 ? "text-red-500" : key === "tax" ? "text-muted-foreground" : key === "fcf" ? "text-primary" : "text-green-600 dark:text-green-400"
+                                }`}
+                              >
+                                {fmtK(v)}
+                              </TableCell>
+                            );
+                          })}
+                        </TableRow>
+                      ))}
                     </TableBody>
                   </Table>
                 </div>
@@ -693,9 +725,13 @@ export default function Simulator() {
                     <TableBody>
                       {[
                         { label: "Revenue", key: "revenue" as const, highlight: false, bold: false },
+                        { label: "Less: COGS", key: "cogs" as const, highlight: false, bold: false },
                         { label: "Gross Profit", key: "grossProfit" as const, highlight: false, bold: true },
+                        { label: "Less: OpEx", key: "opex" as const, highlight: false, bold: false },
                         { label: "EBITDA", key: "ebitda" as const, highlight: false, bold: true },
+                        { label: "Less: Tax Expense", key: "tax" as const, highlight: false, bold: false },
                         { label: "NOPAT", key: "nopat" as const, highlight: false, bold: true },
+                        { label: "Less: CapEx", key: "capex" as const, highlight: false, bold: false },
                         { label: "FCF", key: "fcf" as const, highlight: true, bold: true },
                       ].map(({ label, key, highlight, bold }) => (
                         <TableRow key={label} className={highlight ? "bg-primary/5" : ""}>
