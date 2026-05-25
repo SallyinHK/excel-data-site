@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, Link } from "wouter";
 import {
   useGetProject,
@@ -49,7 +49,7 @@ import {
   Pencil,
   X,
   Info,
-  FileText,
+  FileText
 } from "lucide-react";
 import {
   AreaChart,
@@ -391,14 +391,15 @@ function SalesRegionsCard({ projectId }: { projectId: number }) {
 
 type FinInput = { year: number; salesVolume: number; netPrice: number; unitCost: number | null; costQty: number | null; cogs: number; opex: number; capex: number };
 
-function FinancialInputsEditor({ scenarioId, project, onCalcDone }: { scenarioId: number; project: any; onCalcDone: () => void }) {
+function FinancialInputsEditor({ scenarioId, project, scenarioLifecycleYears, onCalcDone }: { scenarioId: number; project: any; scenarioLifecycleYears?: number; onCalcDone: () => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const { data: rawInputs, isLoading } = useGetFinancialInputs(scenarioId);
   const saveInputs = useSaveFinancialInputs();
   const calcScenario = useCalculateScenario();
 
-  const empty5years: FinInput[] = Array.from({ length: 5 }, (_, i) => ({
+  const lifecycleYears = Math.max(1, Number(scenarioLifecycleYears ?? 5) || 5);
+  const empty5years: FinInput[] = Array.from({ length: lifecycleYears }, (_, i) => ({
     year: i + 1,
     salesVolume: 0,
     netPrice: 0,
@@ -411,6 +412,75 @@ function FinancialInputsEditor({ scenarioId, project, onCalcDone }: { scenarioId
 
   const [localInputs, setLocalInputs] = useState<FinInput[] | null>(null);
   const inputs = localInputs ?? (rawInputs?.length ? (rawInputs as FinInput[]) : empty5years);
+
+  const [draftLifecycleYears, setDraftLifecycleYears] = useState(String(inputs.length || lifecycleYears));
+
+  useEffect(() => {
+    setDraftLifecycleYears(String(inputs.length || lifecycleYears));
+  }, [scenarioId, inputs.length, lifecycleYears]);
+
+  const resizeInputsToLifecycle = (baseInputs: FinInput[], targetYears: number): FinInput[] => {
+    return Array.from({ length: targetYears }, (_, index) => {
+      const year = index + 1;
+      const existing = baseInputs.find((row) => row.year === year);
+
+      return existing ?? {
+        year,
+        salesVolume: 0,
+        netPrice: 0,
+        unitCost: null,
+        costQty: null,
+        cogs: 0,
+        opex: 0,
+        capex: 0,
+      };
+    });
+  };
+
+  const handleApplyLifecycleYears = async () => {
+    const nextYears = Math.max(1, Math.min(10, Number(draftLifecycleYears) || inputs.length || lifecycleYears));
+    const resizedInputs = resizeInputsToLifecycle(inputs, nextYears);
+
+    try {
+      const response = await fetch(`/api/scenarios/${scenarioId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          lifecycleYears: nextYears,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to update lifecycle.");
+      }
+
+      await saveInputs.mutateAsync({ id: scenarioId, data: { inputs: resizedInputs } });
+
+      setLocalInputs(resizedInputs);
+      await qc.invalidateQueries();
+
+      toast({
+        title: "Lifecycle updated",
+        description: `Scenario lifecycle is now ${nextYears} year(s).`,
+      });
+    } catch {
+      toast({
+        title: "Error",
+        description: "Failed to update lifecycle years.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const { data: setupSalesRegions } = useListProjectSalesRegions(project.id);
+  const allProjectRegions = Array.from(
+    new Set([
+      project.region,
+      ...((setupSalesRegions ?? []).map((region: any) => region.region)),
+    ].filter(Boolean))
+  );
 
   const setCell = (year: number, field: keyof FinInput, value: string) => {
     setLocalInputs((prev) => {
@@ -460,7 +530,7 @@ function FinancialInputsEditor({ scenarioId, project, onCalcDone }: { scenarioId
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: "Project ID", value: `PRJ-${project.id}` },
-            { label: "Region", value: project.region },
+            { label: "All Regions", value: allProjectRegions.join(", ") || project.region },
             { label: "Category", value: project.productCategory ?? "—" },
             { label: "Investment", value: project.investmentSize ? fmt(parseFloat(String(project.investmentSize))) : "—" },
           ].map(({ label, value }) => (
@@ -661,20 +731,49 @@ function FinancialInputsEditor({ scenarioId, project, onCalcDone }: { scenarioId
         <SectionLabel num="4" label="Financial Assumptions" icon={ShieldCheck} />
         <p className="text-[10px] text-muted-foreground mb-2">Governed parameters used by the calculation engine. Edit in Formula Governance.</p>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {[
-            { label: "Discount Rate (WACC)", value: "See Governance →", href: "/admin/formulas" },
-            { label: "Tax Rate", value: "Per Region", href: "/admin/regions" },
-            { label: "Lifecycle (Years)", value: `${inputs.length}y` },
-          ].map(({ label, value, href }) => (
-            <div key={label} className="rounded-md border px-3 py-2 flex flex-col gap-0.5">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</div>
-              {href ? (
-                <Link href={href} className="text-xs font-mono text-primary hover:underline">{value}</Link>
-              ) : (
-                <div className="text-xs font-mono font-semibold">{value}</div>
-              )}
+          <div className="rounded-md border px-3 py-2 flex flex-col gap-0.5">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Discount Rate (WACC)
             </div>
-          ))}
+            <Link href="/admin/formulas" className="text-xs font-mono text-primary hover:underline">
+              See Governance →
+            </Link>
+          </div>
+
+          <div className="rounded-md border px-3 py-2 flex flex-col gap-0.5">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Tax Rate
+            </div>
+            <Link href="/admin/regions" className="text-xs font-mono text-primary hover:underline">
+              Per Region
+            </Link>
+          </div>
+
+          <div className="rounded-md border px-3 py-2 flex flex-col gap-1.5">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Lifecycle (Years)
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min="1"
+                max="10"
+                className="h-7 w-20 text-xs font-mono text-right"
+                value={draftLifecycleYears}
+                onChange={(e) => setDraftLifecycleYears(e.target.value)}
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-[11px]"
+                disabled={saveInputs.isPending}
+                onClick={handleApplyLifecycleYears}
+              >
+                Apply
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1360,6 +1459,7 @@ export default function ProjectDetail() {
   const { data: project, isLoading: projLoading, refetch: refetchProject } = useGetProject(projectId);
   const { data: scenarios, isLoading: scenLoading, refetch: refetchScenarios } = useListScenarios(projectId);
   const { data: auditLog } = useGetProjectAuditLog(projectId);
+  const { data: headerSalesRegions } = useListProjectSalesRegions(projectId);
   const updateProject = useUpdateProject();
   const createScenario = useCreateScenario();
   const duplicateScenario = useDuplicateScenario();
@@ -1370,9 +1470,17 @@ export default function ProjectDetail() {
   const [newStatus, setNewStatus] = useState("");
   const [showNewScenario, setShowNewScenario] = useState(false);
   const [newScenarioName, setNewScenarioName] = useState("");
+  const [newScenarioLifecycleYears, setNewScenarioLifecycleYears] = useState("5");
+  const [editingScenarioId, setEditingScenarioId] = useState<number | null>(null);
+  const [editScenarioName, setEditScenarioName] = useState("");
+  const [editScenarioLifecycleYears, setEditScenarioLifecycleYears] = useState("5");
 
   const activeScenario = scenarios?.find((s) => s.id === activeScenarioId) ?? scenarios?.[0] ?? null;
   const displayScenarioId = activeScenarioId ?? activeScenario?.id ?? null;
+  const baselineLifecycleYears =
+    Number(scenarios?.find((scenario) => scenario.isBaseline)?.lifecycleYears) ||
+    Number(scenarios?.[0]?.lifecycleYears) ||
+    5;
 
   const handleStatusChange = () => {
     if (!newStatus) return;
@@ -1391,12 +1499,19 @@ export default function ProjectDetail() {
 
   const handleAddScenario = () => {
     if (!newScenarioName.trim()) return;
+
+    const lifecycleYears = Math.max(
+      1,
+      Math.min(10, Number(newScenarioLifecycleYears) || baselineLifecycleYears)
+    );
+
     createScenario.mutate(
-      { id: projectId, data: { name: newScenarioName, lifecycleYears: 5, isBaseline: false } },
+      { id: projectId, data: { name: newScenarioName, lifecycleYears, isBaseline: false } },
       {
         onSuccess: (newScen) => {
           toast({ title: "Scenario created" });
           setNewScenarioName("");
+          setNewScenarioLifecycleYears(String(baselineLifecycleYears));
           setShowNewScenario(false);
           if (newScen?.id) setActiveScenarioId(newScen.id);
           refetchScenarios();
@@ -1420,6 +1535,89 @@ export default function ProjectDetail() {
         onError: () => toast({ title: "Error", description: "Failed to duplicate", variant: "destructive" }),
       }
     );
+  };
+
+  const handleStartEditScenario = (scenario: any) => {
+    setEditingScenarioId(scenario.id);
+    setEditScenarioName(scenario.name || "");
+    setEditScenarioLifecycleYears(String(scenario.lifecycleYears || 5));
+  };
+
+  const handleCancelEditScenario = () => {
+    setEditingScenarioId(null);
+    setEditScenarioName("");
+    setEditScenarioLifecycleYears("5");
+  };
+
+  const handleSaveScenarioEdit = async () => {
+    if (!editingScenarioId || !editScenarioName.trim()) return;
+
+    const lifecycleYears = Math.max(1, Math.min(10, Number(editScenarioLifecycleYears) || 5));
+
+    try {
+      const response = await fetch(`/api/scenarios/${editingScenarioId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: editScenarioName.trim(),
+          lifecycleYears,
+        }),
+      });
+
+      const result = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(result?.error || "Failed to update scenario.");
+      }
+
+      toast({ title: "Scenario updated" });
+      handleCancelEditScenario();
+      await refetchScenarios();
+      await qc.invalidateQueries();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update scenario.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteScenario = async (scenario: any) => {
+    const confirmed = window.confirm(
+      `Permanently delete scenario "${scenario.name}"? This will remove its inputs and calculation results.`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(`/api/scenarios/${scenario.id}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error || "Failed to delete scenario.");
+      }
+
+      toast({ title: "Scenario deleted" });
+
+      if (activeScenarioId === scenario.id) {
+        const nextScenario = scenarios?.find((item) => item.id !== scenario.id);
+        setActiveScenarioId(nextScenario?.id ?? null);
+      }
+
+      await refetchScenarios();
+      await qc.invalidateQueries();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete scenario.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleCreateActualTracker = () => {
@@ -1460,6 +1658,13 @@ export default function ProjectDetail() {
     );
   }
 
+  const headerRegions = Array.from(
+    new Set([
+      project.region,
+      ...((headerSalesRegions ?? []).map((region: any) => region.region)),
+    ].filter(Boolean))
+  );
+
   return (
     <div className="space-y-5 p-4 md:p-6">
 
@@ -1477,7 +1682,7 @@ export default function ProjectDetail() {
           </div>
           <div className="flex flex-wrap gap-3 mt-1 text-xs text-muted-foreground">
             <span className="font-mono">PRJ-{project.id}</span>
-            <span>Region: <strong>{project.region}</strong></span>
+            <span>Regions: <strong>{headerRegions.join(", ") || project.region}</strong></span>
             {project.productCategory && <span>Category: <strong>{project.productCategory}</strong></span>}
           </div>
         </div>
@@ -1525,7 +1730,7 @@ export default function ProjectDetail() {
               scenarios?.map((s) => (
                 <button
                   key={s.id}
-                  onClick={() => setActiveScenarioId(s.id)}
+                  onClick={() => { setActiveScenarioId(s.id); setActiveTab("results"); handleCancelEditScenario(); }}
                   className={`inline-flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium transition-colors border ${
                     displayScenarioId === s.id
                       ? "bg-primary text-primary-foreground border-primary"
@@ -1543,7 +1748,28 @@ export default function ProjectDetail() {
                 <Copy className="w-3 h-3" /> Duplicate
               </Button>
             )}
-            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => setShowNewScenario(true)}>
+                        {activeScenario && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs gap-1"
+                  onClick={() => handleStartEditScenario(activeScenario)}
+                >
+                  <Pencil className="w-3 h-3" /> Edit
+                </Button>
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs gap-1 text-red-500 hover:text-red-600"
+                  onClick={() => handleDeleteScenario(activeScenario)}
+                >
+                  <Trash2 className="w-3 h-3" /> Delete
+                </Button>
+              </>
+            )}
+<Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => { setNewScenarioName(""); setNewScenarioLifecycleYears(String(baselineLifecycleYears)); setShowNewScenario(true); }}>
               <PlusCircle className="w-3 h-3" /> New Scenario
             </Button>
           </div>
@@ -1559,6 +1785,19 @@ export default function ProjectDetail() {
               onChange={(e) => setNewScenarioName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleAddScenario()}
             />
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-muted-foreground">Lifecycle</span>
+              <Input
+                type="number"
+                min="1"
+                max="10"
+                className="h-7 w-20 text-xs font-mono text-right"
+                value={newScenarioLifecycleYears}
+                onChange={(e) => setNewScenarioLifecycleYears(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddScenario()}
+              />
+              <span className="text-[10px] text-muted-foreground">years</span>
+            </div>
             <Button size="sm" className="h-7 text-xs" onClick={handleAddScenario} disabled={createScenario.isPending}>
               {createScenario.isPending ? "Creating..." : "Create"}
             </Button>
@@ -1566,9 +1805,57 @@ export default function ProjectDetail() {
           </div>
         )}
 
+        {editingScenarioId && (
+          <div className="px-4 py-2 border-b flex flex-wrap items-center gap-2 bg-blue-50/50">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-blue-700">
+              Edit Scenario
+            </span>
+
+            <Input
+              className="h-7 w-52 text-xs"
+              placeholder="Scenario name..."
+              value={editScenarioName}
+              onChange={(event) => setEditScenarioName(event.target.value)}
+              onKeyDown={(event) => event.key === "Enter" && handleSaveScenarioEdit()}
+            />
+
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-muted-foreground">Lifecycle</span>
+              <Input
+                type="number"
+                min="1"
+                max="10"
+                className="h-7 w-20 text-xs font-mono text-right"
+                value={editScenarioLifecycleYears}
+                onChange={(event) => setEditScenarioLifecycleYears(event.target.value)}
+                onKeyDown={(event) => event.key === "Enter" && handleSaveScenarioEdit()}
+              />
+              <span className="text-[10px] text-muted-foreground">years</span>
+            </div>
+
+            <Button size="sm" className="h-7 text-xs" onClick={handleSaveScenarioEdit}>
+              Save
+            </Button>
+
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleCancelEditScenario}>
+              Cancel
+            </Button>
+          </div>
+        )}
+
         {displayScenarioId != null ? (
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
             <div className="px-4 pt-3 border-b">
+              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span className="font-semibold">Current Scenario:</span>
+                <Badge variant="outline" className="font-mono">
+                  {activeScenario?.name ?? "—"}
+                </Badge>
+                {activeScenario?.lifecycleYears && (
+                  <span>{activeScenario.lifecycleYears} year(s)</span>
+                )}
+              </div>
+
               <TabsList className="h-8">
                 <TabsTrigger value="results" className="text-xs gap-1.5">
                   <BarChart2 className="w-3 h-3" /> Results
@@ -1589,6 +1876,7 @@ export default function ProjectDetail() {
               <FinancialInputsEditor
                 scenarioId={displayScenarioId}
                 project={project}
+                scenarioLifecycleYears={activeScenario?.lifecycleYears}
                 onCalcDone={() => {
                   setActiveTab("results");
                   refetchScenarios();
@@ -1600,7 +1888,7 @@ export default function ProjectDetail() {
         ) : !scenLoading && (
           <div className="py-12 text-center text-muted-foreground">
             <p className="text-sm">No scenarios yet.</p>
-            <Button variant="outline" size="sm" className="mt-4" onClick={() => setShowNewScenario(true)}>
+            <Button variant="outline" size="sm" className="mt-4" onClick={() => { setNewScenarioName(""); setNewScenarioLifecycleYears(String(baselineLifecycleYears)); setShowNewScenario(true); }}>
               <PlusCircle className="w-4 h-4 mr-1" /> Create First Scenario
             </Button>
           </div>
@@ -1646,7 +1934,7 @@ export default function ProjectDetail() {
                     <TableRow
                       key={s.id}
                       className={`cursor-pointer transition-colors ${s.id === displayScenarioId ? "bg-muted/40" : "hover:bg-muted/20"}`}
-                      onClick={() => setActiveScenarioId(s.id)}
+                      onClick={() => { setActiveScenarioId(s.id); setActiveTab("results"); handleCancelEditScenario(); }}
                     >
                       <TableCell className="pl-6 py-2">
                         <div className="text-xs font-medium">{s.name}</div>

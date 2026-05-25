@@ -16,6 +16,58 @@ import {
 
 const router = Router();
 
+async function attachProjectRegions<T extends { id: number; region?: string | null }>(projects: T[]) {
+  if (projects.length === 0) return [];
+
+  const projectIds = projects.map((project) => project.id);
+
+  const salesRegions = await db
+    .select({
+      projectId: projectSalesRegionsTable.projectId,
+      region: projectSalesRegionsTable.region,
+    })
+    .from(projectSalesRegionsTable)
+    .where(inArray(projectSalesRegionsTable.projectId, projectIds));
+
+  return projects.map((project) => {
+    const regions = Array.from(
+      new Set([
+        project.region,
+        ...salesRegions
+          .filter((row) => row.projectId === project.id)
+          .map((row) => row.region),
+      ].filter(Boolean))
+    );
+
+    return {
+      ...project,
+      allRegions: regions,
+      regionDisplay: regions.join(", "),
+    };
+  });
+}
+
+async function findActiveProjectNameDuplicate(name: string, excludeId?: number) {
+  const normalized = String(name || "").trim().toLowerCase();
+
+  if (!normalized) return null;
+
+  const projects = await db
+    .select({
+      id: projectsTable.id,
+      name: projectsTable.name,
+      status: projectsTable.status,
+    })
+    .from(projectsTable);
+
+  return projects.find((project) => {
+    if (excludeId != null && project.id === excludeId) return false;
+    if (project.status === "archived") return false;
+    return String(project.name || "").trim().toLowerCase() === normalized;
+  }) ?? null;
+}
+
+
 // GET /api/projects
 router.get("/projects", async (req, res) => {
   try {
@@ -30,7 +82,7 @@ router.get("/projects", async (req, res) => {
       .from(projectsTable)
       .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(desc(projectsTable.createdAt));
-    return res.json(projects);
+    return res.json(await attachProjectRegions(projects));
   } catch (err) {
     req.log.error({ err }, "Failed to list projects");
     return res.status(500).json({ error: "Failed to list projects" });
@@ -45,6 +97,14 @@ router.post("/projects", async (req, res) => {
       return res.status(400).json({ error: parsed.error.message });
     }
     const { name, description, region, productCategory, investmentSize, createdBy } = parsed.data;
+
+    const duplicate = await findActiveProjectNameDuplicate(name);
+    if (duplicate) {
+      return res.status(409).json({
+        error: "Project name already exists. Please use a unique project name.",
+      });
+    }
+
     const [project] = await db
       .insert(projectsTable)
       .values({
@@ -97,7 +157,16 @@ router.patch("/projects/:id", async (req, res) => {
 
     const updateData: Record<string, unknown> = {};
     const { name, description, region, productCategory, investmentSize, status } = parsed.data;
-    if (name !== undefined) updateData.name = name;
+    if (name !== undefined) {
+      const duplicate = await findActiveProjectNameDuplicate(name, id);
+      if (duplicate) {
+        return res.status(409).json({
+          error: "Project name already exists. Please use a unique project name.",
+        });
+      }
+
+      updateData.name = name;
+    }
     if (description !== undefined) updateData.description = description;
     if (region !== undefined) updateData.region = region;
     if (productCategory !== undefined) updateData.productCategory = productCategory;

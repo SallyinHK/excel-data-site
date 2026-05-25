@@ -140,6 +140,49 @@ router.patch("/scenarios/:id", async (req, res) => {
   }
 });
 
+// DELETE /api/scenarios/:id
+router.delete("/scenarios/:id", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ error: "Invalid scenario id" });
+    }
+
+    const [scenario] = await db
+      .select()
+      .from(scenariosTable)
+      .where(eq(scenariosTable.id, id));
+
+    if (!scenario) {
+      return res.status(404).json({ error: "Scenario not found" });
+    }
+
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(calculationsTable)
+        .where(eq(calculationsTable.scenarioId, id));
+
+      await tx
+        .delete(financialInputsTable)
+        .where(eq(financialInputsTable.scenarioId, id));
+
+      await tx
+        .delete(auditLogTable)
+        .where(eq(auditLogTable.recordId, id));
+
+      await tx
+        .delete(scenariosTable)
+        .where(eq(scenariosTable.id, id));
+    });
+
+    return res.status(204).send();
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete scenario");
+    return res.status(500).json({ error: "Failed to delete scenario" });
+  }
+});
+
 // POST /api/scenarios/:id/duplicate
 router.post("/scenarios/:id/duplicate", async (req, res) => {
   try {

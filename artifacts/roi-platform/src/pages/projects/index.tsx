@@ -203,7 +203,7 @@ export default function Projects() {
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
                           <Badge variant="outline" className="font-normal border-muted-foreground/20">
-                            {project.region}
+                            {(project as any).regionDisplay || (project as any).allRegions?.join(", ") || project.region}
                           </Badge>
                         </TableCell>
                         <TableCell>

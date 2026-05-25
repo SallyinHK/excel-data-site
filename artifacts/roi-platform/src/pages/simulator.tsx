@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -187,6 +187,16 @@ function SLabel({ num, label, icon: Icon }: { num: string; label: string; icon?:
 
 // ─── Default state ────────────────────────────────────────────────────────────
 
+function simulatorTaxRateForRegion(region: string) {
+  const key = String(region || "").trim().toUpperCase();
+
+  if (key === "EU") return 22;
+  if (key === "LATAM") return 25;
+  if (key === "MEA") return 15;
+  if (key === "NA") return 21;
+  return 20;
+}
+
 const DEFAULT_SETUP: Setup = { projectName: "New Simulation", projectType: "New", region: "APAC", lifecycleYears: 5 };
 const DEFAULT_ASSUMPTIONS: Assumptions = { discountRate: 8.5, taxRate: 25, targetCmPct: 30 };
 
@@ -289,8 +299,42 @@ export default function Simulator() {
   const [rows, setRows] = useState<YearRow[]>(makeRows(5));
   const [assumptions, setAssumptions] = useState<Assumptions>(DEFAULT_ASSUMPTIONS);
   const [outputTab, setOutputTab] = useState<"pl" | "cashflow" | "risk">("pl");
-  const [selectedDemo, setSelectedDemo] = useState(DEMO_PROJECTS[0].key);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [projectOptions, setProjectOptions] = useState<any[]>([]);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+  const [isLoadingBaseline, setIsLoadingBaseline] = useState(false);
   const [sensitivity, setSensitivity] = useState<Sensitivity>(DEFAULT_SENSITIVITY);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProjects() {
+      setIsLoadingProjects(true);
+
+      try {
+        const response = await fetch("/api/projects");
+        const data = await response.json();
+        const activeProjects = Array.isArray(data)
+          ? data.filter((project: any) => project.status !== "archived")
+          : [];
+
+        if (!cancelled) {
+          setProjectOptions(activeProjects);
+          setSelectedProjectId((current) => current || String(activeProjects[0]?.id ?? ""));
+        }
+      } catch (error) {
+        console.error("Failed to load projects for simulator", error);
+      } finally {
+        if (!cancelled) setIsLoadingProjects(false);
+      }
+    }
+
+    loadProjects();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const adjustedRows = useMemo(
     () => rows.map((r) => ({
@@ -321,24 +365,76 @@ export default function Simulator() {
     });
   };
 
-  const loadDemoBaseline = (key: string) => {
-    const preset = DEMO_PROJECTS.find((item) => item.key === key) ?? DEMO_PROJECTS[0];
+  const loadProjectBaseline = async () => {
+    if (!selectedProjectId) return;
 
-    setSetup({
-      projectName: preset.name,
-      projectType: preset.projectType,
-      region: preset.region,
-      lifecycleYears: preset.years.length,
-    });
+    setIsLoadingBaseline(true);
 
-    setRows(preset.years.map((row) => ({ ...row })));
+    try {
+      const project = projectOptions.find((item) => String(item.id) === selectedProjectId);
 
-    setAssumptions((prev) => ({
-      ...prev,
-      taxRate: preset.taxRate,
-      discountRate: 8.5,
-    }));
-    setSensitivity(DEFAULT_SENSITIVITY);
+      if (!project) return;
+
+      const scenariosResponse = await fetch(`/api/projects/${project.id}/scenarios`);
+      const scenarios = await scenariosResponse.json();
+      const baselineScenario =
+        Array.isArray(scenarios)
+          ? scenarios.find((scenario: any) => scenario.isBaseline) ?? scenarios[0]
+          : null;
+
+      if (!baselineScenario) {
+        const emptyYears = 5;
+
+        setSetup({
+          projectName: project.name,
+          projectType: project.productCategory ?? "New",
+          region: project.region,
+          lifecycleYears: emptyYears,
+        });
+        setRows(makeRows(emptyYears));
+        setAssumptions((prev) => ({
+          ...prev,
+          taxRate: simulatorTaxRateForRegion(project.region),
+          discountRate: 8.5,
+        }));
+        setSensitivity(DEFAULT_SENSITIVITY);
+        return;
+      }
+
+      const inputsResponse = await fetch(`/api/scenarios/${baselineScenario.id}/inputs`);
+      const inputs = await inputsResponse.json();
+
+      const mappedRows =
+        Array.isArray(inputs) && inputs.length > 0
+          ? inputs.map((input: any, index: number) => ({
+              year: Number(input.year ?? index + 1),
+              salesVolume: Number(input.salesVolume ?? input.revenue ?? 0),
+              netPrice: Number(input.netPrice ?? 1) || 1,
+              cogs: Number(input.cogs ?? 0),
+              opex: Number(input.opex ?? 0),
+              capex: Number(input.capex ?? 0),
+            }))
+          : makeRows(Number(baselineScenario.lifecycleYears ?? 5) || 5);
+
+      setSetup({
+        projectName: project.name,
+        projectType: project.productCategory ?? "New",
+        region: project.region,
+        lifecycleYears: mappedRows.length,
+      });
+
+      setRows(mappedRows);
+      setAssumptions((prev) => ({
+        ...prev,
+        taxRate: simulatorTaxRateForRegion(project.region),
+        discountRate: 8.5,
+      }));
+      setSensitivity(DEFAULT_SENSITIVITY);
+    } catch (error) {
+      console.error("Failed to load project baseline", error);
+    } finally {
+      setIsLoadingBaseline(false);
+    }
   };
 
   const years = rows.map((r) => r.year);
@@ -359,16 +455,22 @@ export default function Simulator() {
         </div>
 
         <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-          <Select value={selectedDemo} onValueChange={setSelectedDemo}>
-            <SelectTrigger className="h-8 w-full sm:w-[280px] text-xs bg-background">
-              <SelectValue placeholder="Select baseline project" />
+          <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
+            <SelectTrigger className="h-8 w-full sm:w-[320px] text-xs bg-background">
+              <SelectValue placeholder={isLoadingProjects ? "Loading projects..." : "Select project baseline"} />
             </SelectTrigger>
             <SelectContent>
-              {DEMO_PROJECTS.map((project) => (
-                <SelectItem key={project.key} value={project.key}>
-                  {project.name}
+              {projectOptions.length === 0 ? (
+                <SelectItem value="__none" disabled>
+                  No active projects found
                 </SelectItem>
-              ))}
+              ) : (
+                projectOptions.map((project) => (
+                  <SelectItem key={project.id} value={String(project.id)}>
+                    {project.name}
+                  </SelectItem>
+                ))
+              )}
             </SelectContent>
           </Select>
 
@@ -376,10 +478,11 @@ export default function Simulator() {
             variant="outline"
             size="sm"
             className="h-8 text-xs gap-1.5"
-            onClick={() => loadDemoBaseline(selectedDemo)}
+            onClick={loadProjectBaseline}
+            disabled={!selectedProjectId || isLoadingBaseline}
           >
             <Layers className="w-3.5 h-3.5" />
-            Load Baseline
+            {isLoadingBaseline ? "Loading..." : "Load Baseline"}
           </Button>
 
           <Badge variant="outline" className="text-[10px] px-2 py-1 font-mono uppercase tracking-widest self-start sm:self-auto">

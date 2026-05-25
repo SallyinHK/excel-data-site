@@ -94,8 +94,18 @@ export default function NewProject() {
           });
           setLocation(`/projects/${data.id}`);
         },
-        onError: () => {
-          toast({ title: "Error", description: "Failed to create project", variant: "destructive" });
+        onError: (error: any) => {
+          const message =
+            error?.response?.data?.error ||
+            error?.data?.error ||
+            error?.message ||
+            "Failed to create project";
+
+          toast({
+            title: "Error",
+            description: message,
+            variant: "destructive",
+          });
         },
       }
     );
